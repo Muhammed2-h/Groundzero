@@ -40,18 +40,18 @@ def main():
         
         col1, col2 = st.columns(2)
         
-        # Point A Inputs (Default: Kochi, Kerala)
+        # Point A Inputs
         with col1:
             st.markdown("### Point A (Origin)")
-            a_lat = st.number_input("Latitude A", value=9.9312, format="%.6f", key="a_lat")
-            a_lon = st.number_input("Longitude A", value=76.2673, format="%.6f", key="a_lon")
+            a_lat = st.number_input("Latitude A", value=0.0, format="%.6f", key="a_lat")
+            a_lon = st.number_input("Longitude A", value=0.0, format="%.6f", key="a_lon")
             h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a", help="Antenna Height Above Ground")
             
-        # Point B Inputs (Default: Munnar, Kerala - likely blocked by terrain from Kochi direct line)
+        # Point B Inputs
         with col2:
             st.markdown("### Point B (Target)")
-            b_lat = st.number_input("Latitude B", value=10.0889, format="%.6f", key="b_lat")
-            b_lon = st.number_input("Longitude B", value=77.0595, format="%.6f", key="b_lon")
+            b_lat = st.number_input("Latitude B", value=0.0, format="%.6f", key="b_lat")
+            b_lon = st.number_input("Longitude B", value=0.0, format="%.6f", key="b_lon")
             h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b", help="Antenna Height Above Ground")
 
         # Logic for "Locking" Feature in Manual Mode
