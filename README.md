@@ -3,7 +3,7 @@
 A professional-grade **rf/terrain analysis tool** built with Python and Streamlit. This application calculates the Fresnel Zone and Line of Sight (LoS) between two geographic points using real-world elevation data, accounting for Earth's curvature.
 
 ## 🚀 Live Demo
-*(Once you deploy, put your link here: https://your-app-name.streamlit.app)*
+*https://zerolos.streamlit.app/*
 
 ## ✨ Features
 *   **Real-time Elevation Profile**: Visualizes terrain between any two global coordinates.
