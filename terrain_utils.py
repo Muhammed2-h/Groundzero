@@ -5,97 +5,130 @@ from geopy.distance import geodesic
 from typing import List, Tuple, Dict
 import streamlit as st
 import concurrent.futures
-
-# Open-Meteo Elevation API (Free, no key required)
-OPEN_METEO_ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
-
-# Create a session for connection pooling to improve performance
-session = requests.Session()
-
 import time
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_batch_cached(lats_str: str, lons_str: str) -> List[float]:
-    """
-    Cached helper to fetch a batch of elevations. 
-    Arguments are strings to make them hashable for st.cache_data.
-    Uses requests.Session for connection pooling.
-    Includes Retry Logic for stability.
-    """
-    params = {
-        "latitude": lats_str,
-        "longitude": lons_str
+# === MULTIPLE ELEVATION API SOURCES ===
+# Primary: Open-Meteo (Fast, reliable)
+# Fallback 1: Open-Elevation (Self-hosted, no rate limits)
+# Fallback 2: OpenTopoData (SRTM data)
+
+ELEVATION_APIS = [
+    {
+        "name": "Open-Meteo",
+        "url": "https://api.open-meteo.com/v1/elevation",
+        "format": "query",  # Uses query params
+        "lat_param": "latitude",
+        "lon_param": "longitude",
+        "result_key": "elevation"
+    },
+    {
+        "name": "Open-Elevation",
+        "url": "https://api.open-elevation.com/api/v1/lookup",
+        "format": "json",  # Uses POST with JSON body
+        "result_key": "results"
+    },
+    {
+        "name": "OpenTopoData",
+        "url": "https://api.opentopodata.org/v1/srtm30m",
+        "format": "query",
+        "lat_param": "locations",  # Special format: "lat,lon|lat,lon"
+        "result_key": "results"
     }
-    
-    max_retries = 3
-    base_delay = 1.0 # seconds
-    
-    for attempt in range(max_retries):
-        try:
-            # Use the global session for keep-alive
-            response = session.get(OPEN_METEO_ELEVATION_URL, params=params, timeout=10)
-            
-            # Rate Limit Handling (429)
-            if response.status_code == 429:
-                wait = float(response.headers.get('Retry-After', 2.0))
-                time.sleep(wait)
-                continue # Retry
-                
-            if response.status_code != 200:
-                print(f"API returned {response.status_code}: {response.text}")
-                response.raise_for_status()
-                
+]
+
+# Create a session for connection pooling
+session = requests.Session()
+session.headers.update({'User-Agent': 'TerrainAnalyzer/1.0'})
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_elevation_openmeteo(lats_str: str, lons_str: str) -> List[float]:
+    """Fetch from Open-Meteo API"""
+    try:
+        params = {"latitude": lats_str, "longitude": lons_str}
+        response = session.get(ELEVATION_APIS[0]["url"], params=params, timeout=15)
+        if response.status_code == 200:
             data = response.json()
             return data.get('elevation', [])
-            
-        except (requests.exceptions.RequestException, ConnectionError) as e:
-            print(f"Batch Attempt {attempt+1}/{max_retries} failed: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(base_delay * (2 ** attempt)) # Exponential Backoff
-            else:
-                 # Return None so the caller knows it failed after all retries
-                return None
+        elif response.status_code == 429:
+            time.sleep(2)
+            return None
+    except Exception as e:
+        print(f"Open-Meteo error: {e}")
     return None
 
-def get_elevations(locations: List[Tuple[float, float]], batch_size: int = 100) -> List[float]:
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_elevation_openelevation(locations: List[Tuple[float, float]]) -> List[float]:
+    """Fetch from Open-Elevation API (POST with JSON)"""
+    try:
+        payload = {"locations": [{"latitude": lat, "longitude": lon} for lat, lon in locations]}
+        response = session.post(
+            ELEVATION_APIS[1]["url"], 
+            json=payload, 
+            timeout=30,
+            headers={"Accept": "application/json", "Content-Type": "application/json"}
+        )
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get('results', [])
+            return [r.get('elevation', 0) for r in results]
+    except Exception as e:
+        print(f"Open-Elevation error: {e}")
+    return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_elevation_opentopodata(locations: List[Tuple[float, float]]) -> List[float]:
+    """Fetch from OpenTopoData API (SRTM)"""
+    try:
+        # Format: "lat,lon|lat,lon|..."
+        locs_str = "|".join([f"{lat},{lon}" for lat, lon in locations])
+        params = {"locations": locs_str}
+        response = session.get(ELEVATION_APIS[2]["url"], params=params, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get('results', [])
+            return [r.get('elevation', 0) if r.get('elevation') is not None else 0 for r in results]
+    except Exception as e:
+        print(f"OpenTopoData error: {e}")
+    return None
+
+def get_elevations(locations: List[Tuple[float, float]], batch_size: int = 50) -> List[float]:
     """
-    Fetches elevations from Open-Meteo API using parallel requests and caching.
-    
-    Optimizations:
-    - ThreadPoolExecutor for parallel processing
-    - requests.Session for connection reuse
-    - st.cache_data to avoid re-fetching known coordinates
+    Fetches elevations using multiple APIs with automatic fallback.
+    Priority: Open-Meteo -> Open-Elevation -> OpenTopoData
     """
     elevations = [None] * len(locations)
-    batches = []
     
-    # Prepare batches
+    # Process in smaller batches for reliability
     for i in range(0, len(locations), batch_size):
         batch = locations[i:i + batch_size]
-        batches.append((i, batch))
-
-    # Parallel Fetch
-    # Set to 1 worker (Sequential) to guarantee order and strict rate limiting
-    # This might be slower, but it stops the "Unstable Connection" errors.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future_to_batch = {}
-        for i, batch in batches:
-            lats = ",".join([str(p[0]) for p in batch])
-            lons = ",".join([str(p[1]) for p in batch])
-            future = executor.submit(fetch_batch_cached, lats, lons)
-            future_to_batch[future] = i
-            
-            # Gentle pacing between submissions
-            time.sleep(0.2) 
+        batch_elevs = None
         
-        for future in concurrent.futures.as_completed(future_to_batch):
-            start_idx = future_to_batch[future]
-            try:
-                result = future.result()
-                if result:
-                    elevations[start_idx : start_idx + len(result)] = result
-            except Exception as e:
-                print(f"Thread Error: {e}")
+        # Try Open-Meteo first (fastest)
+        lats = ",".join([str(p[0]) for p in batch])
+        lons = ",".join([str(p[1]) for p in batch])
+        batch_elevs = fetch_elevation_openmeteo(lats, lons)
+        
+        # Fallback to Open-Elevation
+        if batch_elevs is None or len(batch_elevs) != len(batch):
+            print("Trying Open-Elevation fallback...")
+            batch_elevs = fetch_elevation_openelevation(batch)
+        
+        # Fallback to OpenTopoData (limit 100 points per request)
+        if batch_elevs is None or len(batch_elevs) != len(batch):
+            print("Trying OpenTopoData fallback...")
+            batch_elevs = fetch_elevation_opentopodata(batch)
+        
+        # If all APIs failed, use 0 as placeholder (will trigger error in analysis)
+        if batch_elevs is None:
+            batch_elevs = [None] * len(batch)
+        
+        # Store results
+        for j, elev in enumerate(batch_elevs):
+            if i + j < len(elevations):
+                elevations[i + j] = elev
+        
+        # Small delay between batches to avoid rate limits
+        time.sleep(0.3)
 
     return elevations
 
