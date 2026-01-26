@@ -193,29 +193,21 @@ def main():
     # Logic: Sync Frontend State -> Backend State
     if not st.session_state.get('force_map_update', False):
         if map_out:
-            changed = False
-            
             # 1. Update Center
             if "center" in map_out and map_out["center"]:
                 new_lat = map_out["center"]["lat"]
                 new_lon = map_out["center"]["lng"]
-                old_lat, old_lon = st.session_state.map_center
-                # Use small epsilon for float comparison to avoid infinite loops on tiny drifts
-                if abs(new_lat - old_lat) > 0.0001 or abs(new_lon - old_lon) > 0.0001:
-                    st.session_state.map_center = [new_lat, new_lon]
-                    changed = True
+                st.session_state.map_center = [new_lat, new_lon]
 
             # 2. Update Zoom
             if "zoom" in map_out:
                 new_zoom = map_out["zoom"]
-                if new_zoom != st.session_state.map_zoom:
-                    st.session_state.map_zoom = new_zoom
-                    changed = True
+                st.session_state.map_zoom = new_zoom
             
-            # 3. If User moved the map, Rerun to update the Folium object
-            # This prevents "Snap Back" where the Python rerun creates a map with old coords
-            if changed:
-                st.rerun()
+            # Note: We do NOT trigger st.rerun() here.
+            # Doing so causes a "refresh loop" on every zoom interaction.
+            # st_folium handles the view state on the frontend.
+            # We just capture the new state so FUTURE reruns (e.g. typing coordinates) start from here.
     else:
         # Reset the flag after one render cycle so manual panning works again next time
         st.session_state.force_map_update = False
