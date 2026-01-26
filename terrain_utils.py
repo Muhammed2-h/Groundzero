@@ -102,10 +102,11 @@ def get_elevations(locations: List[Tuple[float, float]], batch_size: int = 100) 
  # ... (Curvature function remains same)
 
 @st.cache_data(ttl=600, show_spinner=False)
-def analyze_terrain_profile(lat1: float, lon1: float, lat2: float, lon2: float, 
+def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: float, 
                 h_start_agl: float = 10.0, h_end_agl: float = 10.0,
                 name_a: str = "Point A", name_b: str = "Point B", 
-                force_interval: int = None) -> Dict:
+                force_interval: int = None,
+                _cache_version: int = 2) -> Dict:
     # ... (Path generation same) ...
     # 1. Generate Path Points (Skipping lines 106-130 for brevity in diff, assume standard)
     total_distance_m = geodesic((lat1, lon1), (lat2, lon2)).meters

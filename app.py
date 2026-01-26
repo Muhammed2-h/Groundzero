@@ -415,7 +415,8 @@ def main():
                 
                 site_h = float(row.get('Tower_Height', 30.0))
                 
-                res = analyze_terrain_profile(
+                # Using V3 Analysis (Cache Breaker)
+                res = analyze_terrain_profile_v3(
                     row['Latitude'], row['Longitude'],
                     target_lat, target_lon,
                     h_start_agl=site_h,
@@ -533,7 +534,7 @@ def main():
             ))
         
         fig.update_layout(
-            title="Terrain vs Line of Sight",
+            title="Terrain vs Line of Sight (Model: Flat Earth / Curved Beam)",
             xaxis_title="Distance (km)",
             yaxis_title="Elevation (m)",
             hovermode="x unified"
