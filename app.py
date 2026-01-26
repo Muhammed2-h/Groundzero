@@ -43,6 +43,7 @@ def main():
         df_sites, error = parse_site_data(site_file)
         if df_sites is not None:
             st.session_state.site_data = df_sites
+            st.session_state.sites_just_loaded = True # Flag to center map
             st.sidebar.success(f"Loaded {len(df_sites)} sites!")
         else:
             st.sidebar.error(error)
@@ -81,30 +82,29 @@ def main():
             st.session_state.pick_state = 'A'
         if 'picked_a' not in st.session_state: st.session_state.picked_a = None
         if 'picked_b' not in st.session_state: st.session_state.picked_b = None
-
-        # Base Map Center
-        start_loc = [20.5937, 78.9629] # Default India
-        zoom = 5
         
-        # If sites exist, center on them
-        if st.session_state.site_data is not None:
+        # State: Track Map Center/Zoom to prevent reset on interaction
+        if 'map_center' not in st.session_state:
+            st.session_state.map_center = [20.5937, 78.9629]
+            st.session_state.map_zoom = 5
+
+        # Base Map Center Logic
+        # Priority: 1. Current User View (if changed), 2. Sites (if just loaded), 3. Default
+        # We update session_state.map_center ONLY if the user explicitly moved the map in the LAST interaction
+        # However, st_folium return data for bounds/center is available.
+        # BUT, standard Streamlit pattern: We set `location` in folium.Map.
+        # If we keep resetting it, it jumps.
+        # FIX: We only set `location` to "Default/Sites" ONCE (when data changes). 
+        # Otherwise, we use the `map_center` from session state, which we update from `map_out`.
+
+        # Logic: If sites were JUST loaded (a flag?), center on them. Else, use persistent center.
+        if st.session_state.get('sites_just_loaded', False) and st.session_state.site_data is not None:
             sites = st.session_state.site_data
-            start_loc = [sites['Latitude'].mean(), sites['Longitude'].mean()]
-            zoom = 10
-        elif st.session_state.picked_a:
-            start_loc = st.session_state.picked_a
-            
-        # Configure Tiles
-        tiles = "OpenStreetMap"
-        attr = None
-        if map_style == "Satellite":
-            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-            attr = "Esri World Imagery"
-        elif map_style == "Terrain":
-            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
-            attr = "Esri World Topo"
-            
-        m = folium.Map(location=start_loc, zoom_start=zoom, tiles=tiles, attr=attr)
+            st.session_state.map_center = [sites['Latitude'].mean(), sites['Longitude'].mean()]
+            st.session_state.map_zoom = 10
+            st.session_state.sites_just_loaded = False # Reset flag
+
+        m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.map_zoom, tiles=tiles, attr=attr)
 
         # Draw Imported Sites (if any)
         if st.session_state.site_data is not None:
@@ -175,6 +175,13 @@ def main():
 
         # Render Map & Capture Click
         map_out = st_folium(m, width=None, height=500, key="main_map_interface")
+
+        # Update Persisted Center/Zoom
+        if map_out:
+            if "center" in map_out and map_out["center"]:
+               st.session_state.map_center = [map_out["center"]["lat"], map_out["center"]["lng"]]
+            if "zoom" in map_out:
+               st.session_state.map_zoom = map_out["zoom"]
 
         # Handle Interaction
         if pick_enabled and map_out and map_out.get("last_clicked"):
