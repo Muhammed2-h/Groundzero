@@ -33,6 +33,33 @@ def main():
     beam_width = st.sidebar.slider("Sector Beam Width (°)", min_value=10, max_value=360, value=65, step=5, help="Width of the antenna sector in degrees.")
     sector_radius_km = st.sidebar.slider("Sector Radius (km)", min_value=0.1, max_value=10.0, value=1.0, step=0.1, help="Visual length of the sector wedge.")
     
+    # --- ADVANCED RF CONFIGURATION ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📡 RF Engineering")
+    
+    # Frequency Selection (5G n78 Band)
+    freq_options = {
+        "n78 Low (3.3 GHz)": 3300,
+        "n78 Mid (3.5 GHz)": 3500,
+        "n78 High (3.8 GHz)": 3800
+    }
+    selected_freq_label = st.sidebar.selectbox("5G Frequency Band", list(freq_options.keys()), index=1)
+    frequency_mhz = freq_options[selected_freq_label]
+    
+    # K-Factor for Earth Curvature
+    k_factor = st.sidebar.slider("K-Factor", min_value=1.0, max_value=1.5, value=1.33, step=0.01, 
+                                  help="Standard: 1.33. Higher = more refraction (ducting). Lower = less refraction.")
+    
+    # Antenna Tilt
+    antenna_tilt = st.sidebar.number_input("Antenna Downtilt (°)", min_value=-10.0, max_value=20.0, value=0.0, step=0.5,
+                                            help="Mechanical + Electrical Tilt. Positive = Down.")
+    
+    # Clutter Offset (Simplified Land Use)
+    clutter_type = st.sidebar.selectbox("Environment Type", ["Open/Rural", "Suburban", "Urban", "Dense Urban"])
+    clutter_offsets = {"Open/Rural": 0, "Suburban": 5, "Urban": 10, "Dense Urban": 20}
+    clutter_height = clutter_offsets[clutter_type]
+    st.sidebar.caption(f"Clutter Height Offset: +{clutter_height}m")
+    
     if 'site_data' not in st.session_state:
         st.session_state.site_data = None
         
@@ -416,22 +443,36 @@ def main():
                 
                 site_h = float(row.get('Tower_Height', 30.0))
                 
-                # Using V3 Analysis (Cache Breaker)
+                # Using V3 Analysis with RF Parameters
                 res = analyze_terrain_profile_v3(
                     row['Latitude'], row['Longitude'],
                     target_lat, target_lon,
                     h_start_agl=site_h,
-                    h_end_agl=h_target
+                    h_end_agl=h_target,
+                    frequency_mhz=frequency_mhz,
+                    k_factor=k_factor,
+                    antenna_tilt_deg=antenna_tilt,
+                    clutter_height_m=clutter_height
                 )
                 
                 if res.get("status") == "Success":
-                     st.session_state.results.append({
+                    # Determine status
+                    if res["blocked"]:
+                        status = "❌ BLOCKED"
+                    elif res["fresnel_violated"]:
+                        status = "⚠️ FRESNEL"
+                    else:
+                        status = "✅ CLEAR"
+                    
+                    st.session_state.results.append({
                         "ID": f"{row['Site_ID']}_{idx}",
-                        "Path Name": f"{row['Site_ID']} -> Target",
+                        "Path Name": f"{row['Site_ID']} → Target",
                         "Site ID": row['Site_ID'],
                         "Distance (km)": res["dataframe"]["distance_km"].max(),
-                        "Status": "BLOCKED" if res["blocked"] else "CLEAR",
-                        "Max Obstruction (m)": res["max_obstruction_height"],
+                        "Status": status,
+                        "Obstruction (m)": res["max_obstruction_height"],
+                        "Type": res["obstruction_type"],
+                        "Required Height": f"+{res['required_height_increase']:.1f}m" if res["blocked"] else "-",
                         "Raw": res
                     })
                 
@@ -487,40 +528,86 @@ def main():
         
         if st.session_state.results:
             # Match the DF row index to the Results list index
-            # (Assuming strict 1:1 mapping and order is preserved, which it is here)
             selected_result = st.session_state.results[selected_index]
             raw_data = selected_result["Raw"]
             
+            # Info Panel
+            col_info1, col_info2, col_info3 = st.columns(3)
+            with col_info1:
+                st.metric("Status", "🚫 Blocked" if raw_data["blocked"] else ("⚠️ Fresnel" if raw_data["fresnel_violated"] else "✅ Clear"))
+            with col_info2:
+                st.metric("Obstruction Type", raw_data["obstruction_type"])
+            with col_info3:
+                if raw_data["blocked"]:
+                    st.metric("Required Height Increase", f"+{raw_data['required_height_increase']:.1f}m")
+                else:
+                    st.metric("Clearance", "OK")
+            
             if raw_data["blocked"] and raw_data["obstruction_location"]:
-                st.warning(f"⚠️ Max Obstruction: {raw_data['max_obstruction_height']:.2f}m at {raw_data['obstruction_location']}")
+                st.error(f"⛔ **{raw_data['obstruction_type']}** blocks LoS by {raw_data['max_obstruction_height']:.1f}m. Increase antenna height by at least **+{raw_data['required_height_increase']:.1f}m** to clear.")
 
             # Line Color
-            color = "red" if raw_data["blocked"] else "green"
+            if raw_data["blocked"]:
+                color = "red"
+            elif raw_data["fresnel_violated"]:
+                color = "orange"
+            else:
+                color = "green"
 
-            # 2. Elevation Profile
+            # Elevation Profile
             st.subheader(f"⛰️ Elevation Profile: {selected_result['Path Name']}")
+            st.caption(f"Frequency: {raw_data['frequency_mhz']} MHz | K-Factor: {raw_data['k_factor']}")
         
         df_chart = raw_data['dataframe']
         
         fig = go.Figure()
         
-        # Terrain fill (Flat Earth Model)
+        # Terrain fill (with Clutter)
+        fig.add_trace(go.Scatter(
+            x=df_chart['distance_km'], 
+            y=df_chart['elevation_with_clutter'],
+            fill='tozeroy',
+            mode='lines',
+            name='Terrain + Clutter',
+            line=dict(color='rgba(128, 128, 128, 0.8)')
+        ))
+        
+        # Raw Terrain (lighter)
         fig.add_trace(go.Scatter(
             x=df_chart['distance_km'], 
             y=df_chart['elevation'],
-            fill='tozeroy',
             mode='lines',
-            name='Terrain',
-            line=dict(color='gray')
+            name='Raw Terrain',
+            line=dict(color='rgba(100, 100, 100, 0.4)', width=1)
         ))
         
-        # LoS Line (Curved Drop)
+        # Fresnel Zone Fill (between upper and lower)
+        fig.add_trace(go.Scatter(
+            x=df_chart['distance_km'],
+            y=df_chart['fresnel_upper'],
+            mode='lines',
+            name='Fresnel Upper',
+            line=dict(color='rgba(0, 150, 255, 0.3)', width=1),
+            showlegend=False
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=df_chart['distance_km'],
+            y=df_chart['fresnel_lower'],
+            mode='lines',
+            name='1st Fresnel Zone',
+            fill='tonexty',
+            fillcolor='rgba(0, 150, 255, 0.2)',
+            line=dict(color='rgba(0, 150, 255, 0.3)', width=1)
+        ))
+        
+        # LoS Line
         fig.add_trace(go.Scatter(
             x=df_chart['distance_km'],
             y=df_chart['los_elevation'],
             mode='lines',
             name='Line of Sight',
-            line=dict(color=color, dash='dash')
+            line=dict(color=color, dash='dash', width=2)
         ))
         
         # Highlight obstruction areas
@@ -528,17 +615,29 @@ def main():
              obstruction_points = df_chart[df_chart['is_obstructing']]
              fig.add_trace(go.Scatter(
                 x=obstruction_points['distance_km'],
-                y=obstruction_points['elevation'],
+                y=obstruction_points['elevation_with_clutter'],
                 mode='markers',
-                name='Obstructions',
-                marker=dict(color='red', size=5)
+                name='LoS Obstructions',
+                marker=dict(color='red', size=6, symbol='x')
+            ))
+        
+        # Highlight Fresnel violations
+        if raw_data["fresnel_violated"] and not raw_data["blocked"]:
+             fresnel_blocked_points = df_chart[df_chart['is_fresnel_blocked']]
+             fig.add_trace(go.Scatter(
+                x=fresnel_blocked_points['distance_km'],
+                y=fresnel_blocked_points['elevation_with_clutter'],
+                mode='markers',
+                name='Fresnel Zone Intrusion',
+                marker=dict(color='orange', size=5, symbol='triangle-up')
             ))
         
         fig.update_layout(
-            title="Terrain vs Line of Sight (Model: Flat Earth / Curved Beam)",
+            title=f"RF Path Analysis @ {raw_data['frequency_mhz']} MHz (K={raw_data['k_factor']})",
             xaxis_title="Distance (km)",
             yaxis_title="Elevation (m)",
-            hovermode="x unified"
+            hovermode="x unified",
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
         )
         
         st.plotly_chart(fig, use_container_width=True)

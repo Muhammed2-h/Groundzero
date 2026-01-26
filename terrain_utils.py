@@ -121,9 +121,15 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
                 h_start_agl: float = 10.0, h_end_agl: float = 10.0,
                 name_a: str = "Point A", name_b: str = "Point B", 
                 force_interval: int = None,
-                _cache_version: int = 2) -> Dict:
-    # ... (Path generation same) ...
-    # 1. Generate Path Points (Skipping lines 106-130 for brevity in diff, assume standard)
+                frequency_mhz: float = 3500,
+                k_factor: float = 1.33,
+                antenna_tilt_deg: float = 0.0,
+                clutter_height_m: float = 0.0,
+                _cache_version: int = 3) -> Dict:
+    """
+    Advanced RF Line of Sight Analysis with Fresnel Zone, K-Factor, and Tilt support.
+    """
+    # 1. Generate Path Points
     total_distance_m = geodesic((lat1, lon1), (lat2, lon2)).meters
     if total_distance_m == 0:
          return {"status": "Error", "message": "Start and End points are same."}
@@ -170,52 +176,117 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
         
     elevs_np = np.array(elevations)
     
-    # 3. LoS Calculation ...
+    # Apply Clutter Height Offset (Simplified Land Use)
+    elevs_with_clutter = elevs_np + clutter_height_m
     
-    elevs_np = np.array(elevations)
-    
-    # 3. LoS Calculation with Earth Curvature
-    # Using dynamic user-provided heights
-    
+    # 3. LoS Calculation with Custom K-Factor
     start_elev = elevs_np[0] + h_start_agl
     end_elev = elevs_np[-1] + h_end_agl
     
-    # Linear LoS (Flat Earth reference)
-    los_linear = np.linspace(start_elev, end_elev, num_points)
+    # Apply Antenna Tilt (affects endpoint height)
+    # Positive tilt = downtilt = lower endpoint relative to start
+    import math
+    tilt_rad = math.radians(antenna_tilt_deg)
+    tilt_drop = total_distance_m * math.tan(tilt_rad)
+    end_elev_with_tilt = end_elev - tilt_drop
     
-    # Earth Curvature "Sag"
-    curvature_sag = np.array([calculate_earth_curvature_drop(d, total_distance_m) for d in dist_m_array])
+    # Linear LoS (Flat Earth reference with Tilt)
+    los_linear = np.linspace(start_elev, end_elev_with_tilt, num_points)
+    
+    # Earth Curvature "Sag" with Custom K-Factor
+    def calc_curvature_drop_custom_k(dist_m, total_dist_m, k):
+        if total_dist_m == 0: return 0
+        R_earth = 6371000
+        drop = (dist_m * (total_dist_m - dist_m)) / (2 * k * R_earth)
+        return drop
+    
+    curvature_sag = np.array([calc_curvature_drop_custom_k(d, total_distance_m, k_factor) for d in dist_m_array])
     los_curved = los_linear - curvature_sag
     
-    # Clearance Analysis
-    clearance = los_curved - elevs_np
+    # 4. Fresnel Zone Calculation
+    # F1 Radius = 17.32 * sqrt(d1 * d2 / (f * D))
+    # where d1, d2 in km, f in GHz, D in km
+    frequency_ghz = frequency_mhz / 1000.0
+    total_distance_km = total_distance_m / 1000.0
+    
+    fresnel_radius = []
+    for i, d_km in enumerate(distances):
+        d1 = d_km
+        d2 = total_distance_km - d_km
+        if d1 <= 0 or d2 <= 0:
+            fresnel_radius.append(0)
+        else:
+            f1_radius = 17.32 * np.sqrt((d1 * d2) / (frequency_ghz * total_distance_km))
+            fresnel_radius.append(f1_radius)
+    
+    fresnel_radius = np.array(fresnel_radius)
+    
+    # Fresnel Zone boundaries
+    fresnel_upper = los_curved + fresnel_radius
+    fresnel_lower = los_curved - fresnel_radius
+    
+    # 5. Clearance Analysis (considering clutter)
+    clearance = los_curved - elevs_with_clutter
+    fresnel_clearance = fresnel_lower - elevs_with_clutter
+    
     is_obstructing = clearance < 0
+    is_fresnel_blocked = fresnel_clearance < 0
     blocked = np.any(is_obstructing)
+    fresnel_violated = np.any(is_fresnel_blocked)
+    
+    # 6. Obstruction Classification (based on terrain gradient)
+    # High gradient = Terrain/Hill, Low gradient = Clutter/Building
+    terrain_gradient = np.gradient(elevs_np, distances * 1000)  # m per m
     
     max_obs_height = 0.0
     obs_loc = None
+    obs_type = "None"
+    required_height_increase = 0.0
+    
     if blocked:
-        # Find max obstruction
         min_clearance = np.min(clearance)
         max_obs_idx = np.argmin(clearance)
         max_obs_height = -min_clearance
         obs_loc = points_data[max_obs_idx]
+        
+        # Classify obstruction
+        gradient_at_obs = abs(terrain_gradient[max_obs_idx])
+        if gradient_at_obs > 0.1:  # >10% slope
+            obs_type = "Terrain/Hill"
+        elif clutter_height_m > 0:
+            obs_type = "Clutter/Building"
+        else:
+            obs_type = "Vegetation/Forest"
+        
+        # 7. Reverse Analysis: Required Height Increase
+        # To clear the obstruction, we need to raise the LoS by max_obs_height + margin
+        # This can be achieved by raising the start antenna
+        margin = 5.0  # 5m safety margin
+        required_height_increase = max_obs_height + margin
     
     return {
         "status": "Success",
         "blocked": blocked,
+        "fresnel_violated": fresnel_violated,
         "max_obstruction_height": max_obs_height,
         "obstruction_location": obs_loc,
+        "obstruction_type": obs_type,
+        "required_height_increase": required_height_increase,
+        "frequency_mhz": frequency_mhz,
+        "k_factor": k_factor,
         "dataframe": pd.DataFrame({
             'lat': lats,
             'lon': lons,
             'distance_km': distances,
             'elevation': elevs_np,
-            'elevation_curved': elevs_np + curvature_sag, # Add curvature bulge to earth
-            'los_elevation_flat': los_linear,             # Straight Line
-            'los_elevation': los_curved,                  # Legacy curved line
-            'earth_curve_drop': curvature_sag,
-            'is_obstructing': is_obstructing
+            'elevation_with_clutter': elevs_with_clutter,
+            'los_elevation': los_curved,
+            'fresnel_upper': fresnel_upper,
+            'fresnel_lower': fresnel_lower,
+            'fresnel_radius': fresnel_radius,
+            'clearance': clearance,
+            'is_obstructing': is_obstructing,
+            'is_fresnel_blocked': is_fresnel_blocked
         }),
         "start_point": (lat1, lon1, start_elev),
         "end_point": (lat2, lon2, end_elev),
