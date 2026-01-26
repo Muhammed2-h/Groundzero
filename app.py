@@ -56,6 +56,13 @@ def main():
     if 'results' not in st.session_state:
         st.session_state.results = []
     
+    # SYSTEM UPGRADE: Flush logic to remove stale/incorrect results from previous versions
+    CURRENT_VERSION = 3
+    if 'app_version' not in st.session_state or st.session_state.app_version < CURRENT_VERSION:
+        st.session_state.results = [] # Clear old results (fixes "Hump" vs "Flat" data persistence)
+        st.session_state.app_version = CURRENT_VERSION
+        st.toast("System updated. Cache cleared.", icon="🔄")
+    
     # ----------------------
     # MANUAL MODE LOGIC
     # ----------------------
