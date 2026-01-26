@@ -75,6 +75,22 @@ def main():
     # ----------------------
     # GLOBAL MAP INTERFACE
     # ----------------------
+    
+    # Auto-Zoom on Input Change
+    if 'last_coords_target' not in st.session_state:
+        st.session_state.last_coords_target = st.session_state.coords_target
+        
+    if st.session_state.coords_target != st.session_state.last_coords_target:
+        # Value changed from Input Box
+        lat_check, lon_check = parse_coords(st.session_state.coords_target)
+        if lat_check and lon_check:
+            st.session_state.map_center = [lat_check, lon_check]
+            st.session_state.map_zoom = 15
+            st.session_state.force_map_update = True
+        
+        # Update last known state
+        st.session_state.last_coords_target = st.session_state.coords_target
+
     c_head, c_layer = st.columns([3, 1])
     with c_head:
         st.subheader("🌍 Map Interface")
