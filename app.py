@@ -90,6 +90,30 @@ def main():
     eirp_dbm = tx_power_dbm + tx_gain_dbi
     st.sidebar.metric("Effective EIRP", f"{eirp_dbm:.1f} dBm")
     
+    # --- ADVANCED PROPAGATION SETTINGS ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔬 Advanced Propagation")
+    
+    # Propagation Model
+    prop_model = st.sidebar.selectbox("Propagation Model", 
+                                       ["Free Space (FSPL)", "COST-231 Hata (Urban)", "COST-231 Hata (Suburban)"],
+                                       index=1,
+                                       help="COST-231 Hata is more accurate for cellular in built-up areas.")
+    
+    # Rain Rate (for ITU-R P.838 rain attenuation)
+    rain_rate_mmh = st.sidebar.slider("Rain Rate (mm/h)", min_value=0.0, max_value=100.0, value=0.0, step=5.0,
+                                       help="0 = Clear, 10 = Light, 25 = Moderate, 50 = Heavy, 100 = Extreme")
+    
+    # Indoor/Outdoor Target
+    target_environment = st.sidebar.radio("Target Location", ["Outdoor", "Indoor (Light)", "Indoor (Heavy)", "In-Vehicle"],
+                                           horizontal=True)
+    indoor_loss_map = {"Outdoor": 0, "Indoor (Light)": 15, "Indoor (Heavy)": 25, "In-Vehicle": 10}
+    indoor_loss_db = indoor_loss_map[target_environment]
+    
+    # Antenna Horizontal Beamwidth
+    h_beamwidth = st.sidebar.number_input("Horizontal Beamwidth (°)", min_value=30.0, max_value=360.0, value=65.0, step=5.0,
+                                           help="Typical 5G sector: 65°. Affects off-boresight loss.")
+    
     if 'site_data' not in st.session_state:
         st.session_state.site_data = None
         
@@ -473,7 +497,17 @@ def main():
                 
                 site_h = float(row.get('Tower_Height', 30.0))
                 
-                # Using V3 Analysis with RF Parameters
+                # Using V3 Analysis with Advanced RF Parameters
+                # Calculate bearing to target for antenna pattern
+                import math
+                d_lon = target_lon - row['Longitude']
+                y = math.sin(math.radians(d_lon)) * math.cos(math.radians(target_lat))
+                x = math.cos(math.radians(row['Latitude'])) * math.sin(math.radians(target_lat)) - \
+                    math.sin(math.radians(row['Latitude'])) * math.cos(math.radians(target_lat)) * math.cos(math.radians(d_lon))
+                bearing_to_target = (math.degrees(math.atan2(y, x)) + 360) % 360
+                
+                site_az = float(row.get('Azimuth', 0)) if 'Azimuth' in row and pd.notnull(row.get('Azimuth')) else 0
+                
                 res = analyze_terrain_profile_v3(
                     row['Latitude'], row['Longitude'],
                     target_lat, target_lon,
@@ -486,7 +520,14 @@ def main():
                     # Link Budget
                     eirp_dbm=eirp_dbm,
                     fading_margin_db=fading_margin_db,
-                    rx_sensitivity_dbm=rx_sensitivity_dbm
+                    rx_sensitivity_dbm=rx_sensitivity_dbm,
+                    # Advanced Propagation
+                    prop_model=prop_model,
+                    rain_rate_mmh=rain_rate_mmh,
+                    indoor_loss_db=indoor_loss_db,
+                    h_beamwidth=h_beamwidth,
+                    azimuth_to_target=bearing_to_target,
+                    site_azimuth=site_az
                 )
                 
                 if res.get("status") == "Success":
@@ -583,17 +624,28 @@ def main():
             with col5:
                 st.metric("🎯 Max Range", f"{raw_data['max_range_km']:.2f} km")
             
-            # Path Loss Breakdown
-            with st.expander("📋 Path Loss Breakdown", expanded=False):
+            # Path Loss Breakdown (Expanded)
+            with st.expander("📋 Path Loss Breakdown (All Components)", expanded=False):
+                # Row 1: Model + Base Losses
                 col_pl1, col_pl2, col_pl3 = st.columns(3)
                 with col_pl1:
-                    st.metric("FSPL", f"{raw_data['fspl_db']:.1f} dB")
+                    st.metric("Model Path Loss", f"{raw_data['fspl_db']:.1f} dB", help=raw_data.get('prop_model', 'FSPL'))
                 with col_pl2:
-                    st.metric("Diffraction Loss", f"{raw_data['diffraction_loss_db']:.1f} dB")
+                    st.metric("Diffraction", f"{raw_data['diffraction_loss_db']:.1f} dB")
                 with col_pl3:
-                    st.metric("Clutter Loss", f"{raw_data['clutter_loss_db']:.1f} dB")
+                    st.metric("Clutter", f"{raw_data['clutter_loss_db']:.1f} dB")
                 
-                st.caption(f"**EIRP:** {raw_data['eirp_dbm']:.1f} dBm | **Frequency:** {raw_data['frequency_mhz']} MHz | **K-Factor:** {raw_data['k_factor']}")
+                # Row 2: Advanced Losses
+                col_pl4, col_pl5, col_pl6 = st.columns(3)
+                with col_pl4:
+                    st.metric("🌧️ Rain Fade", f"{raw_data.get('rain_loss_db', 0):.1f} dB")
+                with col_pl5:
+                    st.metric("📡 Antenna Pattern", f"{raw_data.get('antenna_pattern_loss_db', 0):.1f} dB")
+                with col_pl6:
+                    st.metric("🏠 Indoor Loss", f"{raw_data.get('indoor_loss_db', 0):.1f} dB")
+                
+                st.divider()
+                st.caption(f"**Model:** {raw_data.get('prop_model', 'FSPL')} | **EIRP:** {raw_data['eirp_dbm']:.1f} dBm | **Frequency:** {raw_data['frequency_mhz']} MHz | **K-Factor:** {raw_data['k_factor']}")
             
             # Coverage Verdict Alert
             if raw_data["coverage_quality"] >= 4:

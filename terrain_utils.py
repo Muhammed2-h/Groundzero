@@ -129,9 +129,17 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
                 eirp_dbm: float = 61.0,
                 fading_margin_db: float = 8.0,
                 rx_sensitivity_dbm: float = -110.0,
-                _cache_version: int = 4) -> Dict:
+                # Advanced Propagation
+                prop_model: str = "COST-231 Hata (Urban)",
+                rain_rate_mmh: float = 0.0,
+                indoor_loss_db: float = 0.0,
+                h_beamwidth: float = 65.0,
+                azimuth_to_target: float = 0.0,
+                site_azimuth: float = 0.0,
+                _cache_version: int = 5) -> Dict:
     """
-    Advanced RF Line of Sight Analysis with Fresnel Zone, K-Factor, and Tilt support.
+    Advanced RF Line of Sight Analysis with Fresnel Zone, K-Factor, Tilt, 
+    COST-231 Hata, Rain Fade, Indoor Loss, and Antenna Pattern support.
     """
     # 1. Generate Path Points
     total_distance_m = geodesic((lat1, lon1), (lat2, lon2)).meters
@@ -267,39 +275,106 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
         required_height_increase = max_obs_height + margin
     
     # ========================================
-    # 8. RF PROPAGATION & LINK BUDGET ANALYSIS
+    # 8. ADVANCED RF PROPAGATION MODELS
     # ========================================
     
-    # Free Space Path Loss (FSPL)
-    # FSPL (dB) = 20*log10(d) + 20*log10(f) + 32.45
-    # where d = km, f = MHz
     distance_km = total_distance_m / 1000.0
-    if distance_km > 0:
-        fspl_db = 20 * np.log10(distance_km) + 20 * np.log10(frequency_mhz) + 32.45
-    else:
-        fspl_db = 0
+    frequency_ghz = frequency_mhz / 1000.0
     
-    # Diffraction Loss (Simplified Knife-Edge Model)
-    # If blocked, add significant diffraction loss
+    # --- A. PATH LOSS MODEL SELECTION ---
+    if prop_model == "Free Space (FSPL)":
+        # FSPL (dB) = 20*log10(d) + 20*log10(f) + 32.45
+        if distance_km > 0:
+            path_loss_model_db = 20 * np.log10(distance_km) + 20 * np.log10(frequency_mhz) + 32.45
+        else:
+            path_loss_model_db = 0
+            
+    else:
+        # COST-231 Hata Model
+        # Valid for: 1500-2000 MHz (extended to 3500 for 5G approximation)
+        # L = 46.3 + 33.9*log10(f) - 13.82*log10(hb) - a(hm) + (44.9-6.55*log10(hb))*log10(d) + Cm
+        
+        hb = max(h_start_agl, 30)  # Base station height (min 30m for formula validity)
+        hm = max(h_end_agl, 1.5)   # Mobile height
+        
+        # Mobile antenna height correction factor (medium-small city)
+        a_hm = (1.1 * np.log10(frequency_mhz) - 0.7) * hm - (1.56 * np.log10(frequency_mhz) - 0.8)
+        
+        # Urban/Suburban correction
+        if "Urban" in prop_model:
+            Cm = 3  # Urban (metropolitan center)
+        else:
+            Cm = 0  # Suburban
+        
+        if distance_km > 0.02:  # Min 20m for formula validity
+            path_loss_model_db = (46.3 + 33.9 * np.log10(frequency_mhz) 
+                                   - 13.82 * np.log10(hb) - a_hm 
+                                   + (44.9 - 6.55 * np.log10(hb)) * np.log10(distance_km) 
+                                   + Cm)
+            
+            # 5G Frequency Extension Correction (3.5 GHz is above COST-231 range)
+            # Add empirical correction for higher frequencies
+            if frequency_mhz > 2000:
+                freq_extension_db = 10 * np.log10(frequency_mhz / 2000)
+                path_loss_model_db += freq_extension_db
+        else:
+            path_loss_model_db = 60  # Minimum loss at very short range
+    
+    fspl_db = path_loss_model_db  # Store for display (legacy name)
+    
+    # --- B. DIFFRACTION LOSS (Knife-Edge) ---
     diffraction_loss_db = 0.0
     if blocked:
-        # Approximate diffraction loss based on obstruction height
-        # Using simplified ITU-R P.526 knife-edge
-        # v = obstruction_height * sqrt(2 / (lambda * d1 * d2 / D))
-        wavelength_m = 299.792458 / frequency_mhz  # c/f in meters
+        wavelength_m = 0.2998 / frequency_ghz  # c/f in meters
         d1_m = distance_km * 500  # Approximate midpoint
         d2_m = distance_km * 500
         if d1_m > 0 and d2_m > 0:
             v = max_obs_height * np.sqrt(2 / (wavelength_m * d1_m * d2_m / (d1_m + d2_m)))
             if v > -0.78:
                 diffraction_loss_db = 6.9 + 20 * np.log10(np.sqrt((v - 0.1)**2 + 1) + v - 0.1)
-                diffraction_loss_db = max(0, min(diffraction_loss_db, 40))  # Cap at 40 dB
+                diffraction_loss_db = max(0, min(diffraction_loss_db, 40))
     
-    # Clutter Loss (Based on environment)
+    # --- C. RAIN ATTENUATION (ITU-R P.838) ---
+    rain_loss_db = 0.0
+    if rain_rate_mmh > 0 and distance_km > 0:
+        # Simplified ITU-R P.838 for horizontal polarization at 3.5 GHz
+        # gamma_R = k * R^alpha (dB/km)
+        # For 3.5 GHz, H-pol: k ≈ 0.00175, alpha ≈ 1.308
+        k_rain = 0.00175 * (frequency_ghz / 3.5) ** 1.5  # Scale with frequency
+        alpha_rain = 1.1 + 0.06 * np.log10(frequency_ghz)
+        gamma_r = k_rain * (rain_rate_mmh ** alpha_rain)  # dB/km
+        
+        # Effective path length (ITU-R P.530)
+        d_eff = distance_km / (1 + distance_km / 35)  # Reduction factor for long paths
+        rain_loss_db = gamma_r * d_eff
+    
+    # --- D. ANTENNA HORIZONTAL PATTERN LOSS ---
+    antenna_pattern_loss_db = 0.0
+    if h_beamwidth > 0 and h_beamwidth < 360:
+        # Calculate angular offset from boresight
+        angle_offset = abs(azimuth_to_target - site_azimuth)
+        if angle_offset > 180:
+            angle_offset = 360 - angle_offset
+        
+        # 3GPP TS 38.901 Antenna Pattern (simplified)
+        # A(φ) = -min(12*(φ/φ_3dB)^2, Am)
+        # Am = 30 dB (max attenuation), φ_3dB = beamwidth/2
+        phi_3db = h_beamwidth / 2
+        if angle_offset > 0:
+            pattern_atten = min(12 * (angle_offset / phi_3db) ** 2, 30)
+            antenna_pattern_loss_db = pattern_atten
+    
+    # --- E. CLUTTER LOSS (Environment-based) ---
     clutter_loss_db = {0: 0, 5: 3, 10: 8, 20: 15}.get(int(clutter_height_m), 0)
     
-    # Total Path Loss
-    total_path_loss_db = fspl_db + diffraction_loss_db + clutter_loss_db + fading_margin_db
+    # --- F. TOTAL PATH LOSS (All Components) ---
+    total_path_loss_db = (fspl_db 
+                          + diffraction_loss_db 
+                          + rain_loss_db 
+                          + antenna_pattern_loss_db 
+                          + clutter_loss_db 
+                          + indoor_loss_db 
+                          + fading_margin_db)
     
     # Estimated RSRP (dBm)
     # RSRP = EIRP - Path Loss
@@ -349,10 +424,14 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
         # RF Analysis Results
         "fspl_db": fspl_db,
         "diffraction_loss_db": diffraction_loss_db,
+        "rain_loss_db": rain_loss_db,
+        "antenna_pattern_loss_db": antenna_pattern_loss_db,
+        "indoor_loss_db": indoor_loss_db,
         "clutter_loss_db": clutter_loss_db,
         "total_path_loss_db": total_path_loss_db,
         "estimated_rsrp_dbm": estimated_rsrp_dbm,
         "link_margin_db": link_margin_db,
+        "prop_model": prop_model,
         "coverage_verdict": coverage_verdict,
         "coverage_quality": coverage_quality,
         "max_range_km": max_range_km,
