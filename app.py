@@ -187,7 +187,15 @@ def main():
         # Let's keep manual pan/zoom for now.
 
     # Render Map & Capture Click
-    map_out = st_folium(m, width=None, height=500, key="main_map_interface")
+    # OPTIMIZATION: We ONLY request 'last_clicked' to prevent the script from rerunning on every Pan/Zoom event.
+    # This fixes the "Zoom Stuttering" issue, but means the map state (zoom/center) is not constantly synced to the backend.
+    map_out = st_folium(
+        m, 
+        width=None, 
+        height=500, 
+        key="main_map_interface",
+        returned_objects=["last_clicked"]
+    )
 
     # Update Persisted Center/Zoom
     # Logic: Sync Frontend State -> Backend State
