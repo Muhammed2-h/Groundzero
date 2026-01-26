@@ -124,6 +124,7 @@ def main():
             st.session_state.sites_just_loaded = True # Flag to center map
             st.session_state.force_map_update = True # Critical: Force map to respect this update
             st.sidebar.success(f"Loaded {len(df_sites)} sites!")
+            st.rerun()  # Trigger immediate map update
         else:
             st.sidebar.error(error)
     else:
