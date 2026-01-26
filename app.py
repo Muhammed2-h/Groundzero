@@ -165,11 +165,18 @@ def main():
     map_out = st_folium(m, width=None, height=500, key="main_map_interface")
 
     # Update Persisted Center/Zoom
-    if map_out:
-        if "center" in map_out and map_out["center"]:
-           st.session_state.map_center = [map_out["center"]["lat"], map_out["center"]["lng"]]
-        if "zoom" in map_out:
-           st.session_state.map_zoom = map_out["zoom"]
+    # We guard this with a flag 'force_map_update'. 
+    # If we just programmatically moved the map (Zoom Button), we DO NOT want to read back from the map 
+    # immediately, as it might return the old state before the frontend updates.
+    if not st.session_state.get('force_map_update', False):
+        if map_out:
+            if "center" in map_out and map_out["center"]:
+               st.session_state.map_center = [map_out["center"]["lat"], map_out["center"]["lng"]]
+            if "zoom" in map_out:
+               st.session_state.map_zoom = map_out["zoom"]
+    else:
+        # Reset the flag after one render cycle so manual panning works again next time
+        st.session_state.force_map_update = False
 
     # Handle Interaction (Picking)
     if pick_enabled and map_out and map_out.get("last_clicked"):
@@ -180,11 +187,13 @@ def main():
             st.session_state.picked_a = [lat_c, lng_c]
             st.session_state.pick_state = 'B'
             st.toast(f"📍 Point A set")
+            st.session_state.force_map_update = True # Optional: Don't let map move if we just clicked? Actually picking doesn't move map usually.
             st.rerun()
         elif st.session_state.pick_state == 'B':
             st.session_state.picked_b = [lat_c, lng_c]
             st.session_state.pick_state = 'A'
             st.toast(f"📍 Point B set")
+            st.session_state.force_map_update = True
             st.rerun()
     
     # Reset Button for Picks
@@ -196,9 +205,6 @@ def main():
 
     st.divider()
 
-    # ----------------------
-    # MANUAL MODE LOGIC
-    # ----------------------
     # ----------------------
     # MANUAL MODE LOGIC (Now Default)
     # ----------------------
@@ -233,8 +239,9 @@ def main():
                 lat_z, lon_z = parse_coords(cur_val)
                 if lat_z and lon_z:
                     st.session_state.map_center = [lat_z, lon_z]
-                    st.session_state.map_zoom = 12
+                    st.session_state.map_zoom = 15 # Closer Zoom
                     st.session_state.pick_state = 'A' # Optional: set expectation
+                    st.session_state.force_map_update = True # Protect this update
                     st.rerun()
         
         # Check for map picks (Update State directly)
@@ -256,8 +263,9 @@ def main():
                  lat_z, lon_z = parse_coords(cur_val)
                  if lat_z and lon_z:
                     st.session_state.map_center = [lat_z, lon_z]
-                    st.session_state.map_zoom = 12
+                    st.session_state.map_zoom = 15
                     st.session_state.pick_state = 'B'
+                    st.session_state.force_map_update = True # Protect
                     st.rerun()
 
         # Check for map picks
