@@ -214,10 +214,11 @@ def main():
             st.session_state.force_map_update = True
             st.rerun()
     
-    # Reset Button for Picks
-    if st.button("Reset Selection"):
+    # Reset Button (Clear All)
+    if st.button("Reset"):
         st.session_state.coords_target = ""
         st.session_state.picked_a = None
+        st.session_state.results = [] # Clear analysis data
         st.rerun()
 
     st.divider()
