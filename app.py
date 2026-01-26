@@ -59,8 +59,8 @@ def main():
     # ----------------------
     # MANUAL MODE LOGIC
     # ----------------------
-    if 'coords_a' not in st.session_state: st.session_state.coords_a = ""
-    if 'coords_b' not in st.session_state: st.session_state.coords_b = ""
+    # Initialize basic states
+    if 'coords_target' not in st.session_state: st.session_state.coords_target = ""
 
     # Helper for parsing (Global Helper)
     def parse_coords(coord_str):
