@@ -75,19 +75,12 @@ def main():
     # ----------------------
     # GLOBAL MAP INTERFACE
     # ----------------------
-    st.subheader("🌍 Map Interface")
-    c_head, c_opt = st.columns([4, 2])
+    c_head, c_layer = st.columns([3, 1])
     with c_head:
-        st.caption("Click on the map to set points for Manual Analysis.")
-    with c_opt:
-         map_style = st.selectbox("Map Layer", ["Street", "Satellite", "Terrain"], label_visibility="collapsed")
-         pick_enabled = st.checkbox("📍 Enable Picking", value=False, help="Turn on to select points from the map.")
-    
-    # Initialize Pick State
-    if 'pick_state' not in st.session_state:
-        st.session_state.pick_state = 'A'
-    if 'picked_a' not in st.session_state: st.session_state.picked_a = None
-    if 'picked_b' not in st.session_state: st.session_state.picked_b = None
+        st.subheader("🌍 Map Interface")
+        st.caption("Tap/Click the map to set analysis target location.")
+    with c_layer:
+         map_style = st.selectbox("Style", ["Street", "Satellite", "Terrain"], label_visibility="collapsed")
     
     # State: Track Map Center/Zoom to prevent reset on interaction
     if 'map_center' not in st.session_state:
@@ -95,9 +88,6 @@ def main():
         st.session_state.map_zoom = 5
 
     # Base Map Center Logic
-    # FIX: We only set `location` to "Default/Sites" ONCE (when data changes). 
-    # Otherwise, we use the `map_center` from session state, which we update from `map_out`.
-
     if st.session_state.get('sites_just_loaded', False) and st.session_state.site_data is not None:
         sites = st.session_state.site_data
         st.session_state.map_center = [sites['Latitude'].mean(), sites['Longitude'].mean()]
@@ -179,11 +169,12 @@ def main():
                  folium.CircleMarker([obs_lat, obs_lon], radius=2, color='red').add_to(m)
 
     # Render Map & Capture Click
-    # OPTIMIZATION: We ONLY request 'last_clicked' to prevent the script from rerunning on every Pan/Zoom event.
+    # STUTTER FIX: We use 'last_clicked' but we need to ensure we don't accidentally
+    # trigger meaningful updates on PANS. st_folium handles this by only updating 'last_clicked' on clicks.
     map_out = st_folium(
         m, 
         width=None, 
-        height=500, 
+        height=450, # Slightly reduced height for mobile friendliness
         key="main_map_interface",
         returned_objects=["last_clicked"]
     )
@@ -211,16 +202,32 @@ def main():
         # Reset the flag after one render cycle so manual panning works again next time
         st.session_state.force_map_update = False
 
-    # Handle Interaction (Picking)
-    # Simplified: Just picking the global target
-    if pick_enabled and map_out and map_out.get("last_clicked"):
+    # Handle Interaction (Always Active)
+    if map_out and map_out.get("last_clicked"):
         lat_c = map_out["last_clicked"]["lat"]
         lng_c = map_out["last_clicked"]["lng"]
         
-        st.session_state.picked_a = [lat_c, lng_c] # reuse this temp state
-        st.toast(f"📍 Target set")
-        st.session_state.force_map_update = True
-        st.rerun()
+        # Check if this click is "new" or if we already processed it?
+        # st_folium returns the SAME 'last_clicked' object until a new click occurs.
+        # We need to compare with the "currently selected" target to avoid re-triggering constantly?
+        # Actually, st.rerun() resets the script. 
+        # But if the user clicks, we set the coord, rerun. 
+        # Next run: last_clicked is STILL the same. Rerun again? No, we check if value changed.
+        
+        current_target_str = st.session_state.coords_target
+        current_lat, current_lon = parse_coords(current_target_str)
+        
+        # Simulating "New Click Only" Check
+        is_new_click = True
+        if current_lat and current_lon:
+            if abs(current_lat - lat_c) < 0.000001 and abs(current_lon - lng_c) < 0.000001:
+                is_new_click = False # Same click as before
+        
+        if is_new_click:
+            st.session_state.picked_a = [lat_c, lng_c] # reuse this temp state
+            st.toast(f"📍 Target set to {lat_c:.4f}, {lng_c:.4f}")
+            st.session_state.force_map_update = True
+            st.rerun()
     
     # Reset Button for Picks
     if st.button("Reset Selection"):
