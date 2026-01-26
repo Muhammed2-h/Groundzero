@@ -465,9 +465,6 @@ def main():
             # Just show obstruction details in text or smaller UI, since map is above
             st.warning(f"⚠️ Max Obstruction: {raw_data['max_obstruction_height']:.2f}m at {raw_data['obstruction_location']}")
 
-        # 2. Elevation Profile ("1" is now omitted as map is unified)
-        st.subheader("⛰️ Elevation Profile")
-        
         # 2. Elevation Profile
         st.subheader("⛰️ Elevation Profile")
         
