@@ -462,6 +462,9 @@ def main():
             # Just show obstruction details in text or smaller UI, since map is above
             st.warning(f"⚠️ Max Obstruction: {raw_data['max_obstruction_height']:.2f}m at {raw_data['obstruction_location']}")
 
+        # Line Color (Re-defined here as previous definition scope might be gone if map logic changes)
+        color = "red" if raw_data["blocked"] else "green"
+
         # 2. Elevation Profile
         st.subheader("⛰️ Elevation Profile")
         
