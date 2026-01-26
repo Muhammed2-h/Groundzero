@@ -224,24 +224,48 @@ def main():
 
     # Point A Inputs (Manual)
     with col1:
-        st.markdown("### Point A (Origin)")
-        # Check for map picks
-        val_a = "0.0, 0.0"
+        c_a_h, c_a_z = st.columns([3, 1])
+        with c_a_h: st.markdown("### Point A (Origin)")
+        with c_a_z:
+            if st.button("⌖ Zoom", key="zoom_a", help="Center map on Point A"):
+                # Read current input from state
+                cur_val = st.session_state.get("coords_a", "")
+                lat_z, lon_z = parse_coords(cur_val)
+                if lat_z and lon_z:
+                    st.session_state.map_center = [lat_z, lon_z]
+                    st.session_state.map_zoom = 12
+                    st.session_state.pick_state = 'A' # Optional: set expectation
+                    st.rerun()
+        
+        # Check for map picks (Update State directly)
         if st.session_state.get('picked_a'):
-            val_a = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
+            st.session_state.coords_a = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
+            # Clear pick to prevent overwrite on next type
+            st.session_state.picked_a = None 
             
-        a_input = st.text_input("Coordinates A (Lat, Lon)", value=val_a, help="Format: Latitude, Longitude")
+        a_input = st.text_input("Coordinates A (Lat, Lon)", key="coords_a", help="Format: Latitude, Longitude")
         h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a")
         
     # Point B Inputs (Manual)
     with col2:
-        st.markdown("### Point B (Target)")
-            # Check for map picks
-        val_b = "0.0, 0.0"
+        c_b_h, c_b_z = st.columns([3, 1])
+        with c_b_h: st.markdown("### Point B (Target)")
+        with c_b_z:
+            if st.button("⌖ Zoom", key="zoom_b", help="Center map on Point B"):
+                 cur_val = st.session_state.get("coords_b", "")
+                 lat_z, lon_z = parse_coords(cur_val)
+                 if lat_z and lon_z:
+                    st.session_state.map_center = [lat_z, lon_z]
+                    st.session_state.map_zoom = 12
+                    st.session_state.pick_state = 'B'
+                    st.rerun()
+
+        # Check for map picks
         if st.session_state.get('picked_b'):
-            val_b = f"{st.session_state.picked_b[0]:.6f}, {st.session_state.picked_b[1]:.6f}"
-            
-        b_input = st.text_input("Coordinates B (Lat, Lon)", value=val_b, help="Format: Latitude, Longitude")
+            st.session_state.coords_b = f"{st.session_state.picked_b[0]:.6f}, {st.session_state.picked_b[1]:.6f}"
+            st.session_state.picked_b = None
+
+        b_input = st.text_input("Coordinates B (Lat, Lon)", key="coords_b", help="Format: Latitude, Longitude")
         h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b")
 
     # Parse Inputs
