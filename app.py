@@ -25,6 +25,11 @@ def main():
     # --- SITE DATA IMPORT ---
     st.sidebar.markdown("---")
     st.sidebar.subheader("🌍 Import Site Data")
+    
+    # Template
+    site_template = "Site_ID,Sector_ID,Latitude,Longitude,Azimuth,Height\nSITE001,SEC1,20.5937,78.9629,0,30\nSITE001,SEC2,20.5937,78.9629,120,30\nSITE001,SEC3,20.5937,78.9629,240,30"
+    st.sidebar.download_button("📥 Download Template CSV", site_template, "sites_template.csv", "text/csv", help="Download sample CSV format with Site_ID, Lat, Lon, Azimuth.")
+    
     site_file = st.sidebar.file_uploader("Upload Sites (CSV/KML/KMZ)", type=["csv", "kml", "kmz"])
     
     # Beam Width for Sector Visualization
