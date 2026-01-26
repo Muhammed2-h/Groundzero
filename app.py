@@ -37,6 +37,9 @@ def main():
             st.sidebar.success(f"Loaded {len(df_sites)} sites!")
         else:
             st.sidebar.error(error)
+    else:
+        # File removed -> Clear data
+        st.session_state.site_data = None
     
     # ----------------------
     if 'locked_point' not in st.session_state:
