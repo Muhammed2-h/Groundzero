@@ -202,17 +202,26 @@ def main():
     # to only when drawings occur.
 
     # Handle Interaction (Draw Event)
+    if 'last_processed_drawing' not in st.session_state:
+        st.session_state.last_processed_drawing = None
+
     if map_out and map_out.get("last_active_drawing"):
         drawing = map_out["last_active_drawing"]
-        if drawing['geometry']['type'] == 'Point':
-            # GeoJSON is [Lon, Lat]
-            lon_c, lat_c = drawing['geometry']['coordinates']
-            
-            # Update Target
-            st.session_state.picked_a = [lat_c, lon_c]
-            st.toast(f"📍 Target set to {lat_c:.4f}, {lon_c:.4f}")
-            st.session_state.force_map_update = True
-            st.rerun()
+        
+        # Check against previous to prevent Loop / Stale Overwrite
+        if drawing != st.session_state.last_processed_drawing:
+            if drawing['geometry']['type'] == 'Point':
+                # GeoJSON is [Lon, Lat]
+                lon_c, lat_c = drawing['geometry']['coordinates']
+                
+                # Update Target
+                st.session_state.picked_a = [lat_c, lon_c]
+                st.toast(f"📍 Target set to {lat_c:.4f}, {lon_c:.4f}")
+                
+                # Mark as processed
+                st.session_state.last_processed_drawing = drawing
+                st.session_state.force_map_update = True
+                st.rerun()
     
     # Reset Button (Clear All)
     if st.button("Reset"):
