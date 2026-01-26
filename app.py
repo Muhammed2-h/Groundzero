@@ -63,8 +63,12 @@ def main():
         use_locking = st.checkbox("Enable Point Locking (One-to-Many)", help="Fix one point and analyze multiple targets.")
         
         # --- MAP VISUALIZATION & PICKER ---
-        st.subheader("🌍 Map Interface")
-        st.caption("Click on the map to set points (Green = Point A, Red = Point B).")
+        c_head, c_opt = st.columns([4, 2])
+        with c_head:
+            st.subheader("🌍 Map Interface")
+            st.caption("Click on the map to set points (Green = Point A, Red = Point B).")
+        with c_opt:
+             map_style = st.selectbox("Map Layer", ["Street", "Satellite", "Terrain"], label_visibility="collapsed")
         
         # Initialize Pick State
         if 'pick_state' not in st.session_state:
@@ -84,7 +88,17 @@ def main():
         elif st.session_state.picked_a:
             start_loc = st.session_state.picked_a
             
-        m = folium.Map(location=start_loc, zoom_start=zoom)
+        # Configure Tiles
+        tiles = "OpenStreetMap"
+        attr = None
+        if map_style == "Satellite":
+            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            attr = "Esri World Imagery"
+        elif map_style == "Terrain":
+            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+            attr = "Esri World Topo"
+            
+        m = folium.Map(location=start_loc, zoom_start=zoom, tiles=tiles, attr=attr)
 
         # Draw Imported Sites (if any)
         if st.session_state.site_data is not None:
