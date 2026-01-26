@@ -59,6 +59,19 @@ def main():
     # ----------------------
     # MANUAL MODE LOGIC
     # ----------------------
+    if 'coords_a' not in st.session_state: st.session_state.coords_a = ""
+    if 'coords_b' not in st.session_state: st.session_state.coords_b = ""
+
+    # Helper for parsing (Global Helper)
+    def parse_coords(coord_str):
+        try:
+            if not coord_str: return None, None
+            parts = coord_str.split(',')
+            if len(parts) != 2: return None, None
+            return float(parts[0].strip()), float(parts[1].strip())
+        except ValueError:
+            return None, None
+
     # ----------------------
     # GLOBAL MAP INTERFACE
     # ----------------------
@@ -227,16 +240,6 @@ def main():
     
     col1, col2 = st.columns(2)
     
-    # Helper for parsing
-    def parse_coords(coord_str):
-        try:
-            if not coord_str: return None, None
-            parts = coord_str.split(',')
-            if len(parts) != 2: return None, None
-            return float(parts[0].strip()), float(parts[1].strip())
-        except ValueError:
-            return None, None
-
     # --- INPUT LOGIC (MANUAL + MAP PICK) ---
     a_lat, a_lon, b_lat, b_lon = None, None, None, None
 
