@@ -62,6 +62,53 @@ def main():
         # Locking Controls
         use_locking = st.checkbox("Enable Point Locking (One-to-Many)", help="Fix one point and analyze multiple targets.")
         
+        # --- MAP COORDINATE PICKER ---
+        with st.expander("📍 Pick Coordinates from Map"):
+            st.caption("Click on the map to select points. First click sets Point A, second click sets Point B.")
+            
+            # State for Picker
+            if 'pick_state' not in st.session_state:
+                st.session_state.pick_state = 'A' # Expecting A
+            if 'picked_a' not in st.session_state: st.session_state.picked_a = None
+            if 'picked_b' not in st.session_state: st.session_state.picked_b = None
+            
+            # Default location (India center roughly) or last picked
+            start_loc = [20.5937, 78.9629]
+            if st.session_state.picked_a:
+                start_loc = st.session_state.picked_a
+                
+            m_pick = folium.Map(location=start_loc, zoom_start=5)
+            
+            # Show picked points
+            if st.session_state.picked_a:
+                folium.Marker(st.session_state.picked_a, popup="Point A", icon=folium.Icon(color='green', icon='play')).add_to(m_pick)
+            if st.session_state.picked_b:
+                folium.Marker(st.session_state.picked_b, popup="Point B", icon=folium.Icon(color='red', icon='stop')).add_to(m_pick)
+
+            pick_data = st_folium(m_pick, height=300, width=None, key="coord_picker")
+            
+            # Handle Click
+            if pick_data and pick_data.get("last_clicked"):
+                lat_c = pick_data["last_clicked"]["lat"]
+                lng_c = pick_data["last_clicked"]["lng"]
+                
+                if st.session_state.pick_state == 'A':
+                    st.session_state.picked_a = [lat_c, lng_c]
+                    st.session_state.pick_state = 'B'
+                    st.toast(f"Point A set to {lat_c:.4f}, {lng_c:.4f}")
+                    st.rerun()
+                elif st.session_state.pick_state == 'B':
+                    st.session_state.picked_b = [lat_c, lng_c]
+                    st.session_state.pick_state = 'A' # Cycle back
+                    st.toast(f"Point B set to {lat_c:.4f}, {lng_c:.4f}")
+                    st.rerun()
+             
+            if st.button("Reset Picks"):
+                st.session_state.picked_a = None
+                st.session_state.picked_b = None
+                st.session_state.pick_state = 'A'
+                st.rerun()
+
         col1, col2 = st.columns(2)
         
         # Helper for parsing
@@ -108,13 +155,23 @@ def main():
             # Point A Inputs (Manual)
             with col1:
                 st.markdown("### Point A (Origin)")
-                a_input = st.text_input("Coordinates A (Lat, Lon)", value="0.0, 0.0", help="Format: Latitude, Longitude")
+                # Check for map picks
+                val_a = "0.0, 0.0"
+                if st.session_state.get('picked_a'):
+                    val_a = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
+                    
+                a_input = st.text_input("Coordinates A (Lat, Lon)", value=val_a, help="Format: Latitude, Longitude")
                 h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a")
                 
             # Point B Inputs (Manual)
             with col2:
                 st.markdown("### Point B (Target)")
-                b_input = st.text_input("Coordinates B (Lat, Lon)", value="0.0, 0.0", help="Format: Latitude, Longitude")
+                 # Check for map picks
+                val_b = "0.0, 0.0"
+                if st.session_state.get('picked_b'):
+                    val_b = f"{st.session_state.picked_b[0]:.6f}, {st.session_state.picked_b[1]:.6f}"
+                    
+                b_input = st.text_input("Coordinates B (Lat, Lon)", value=val_b, help="Format: Latitude, Longitude")
                 h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b")
 
             # Parse Inputs
