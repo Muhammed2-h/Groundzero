@@ -230,12 +230,12 @@ def main():
     col1, col2 = st.columns([2, 1])
     
     # Sync Logic for Single Point
-    # Reusing the global parse_coords and sync_input_to_marker
+    # We use 'coords_target' as the single source of truth.
+    # 'picked_a' is used strictly as a temporary signal from the Map to update the Input.
     if 'coords_target' not in st.session_state: st.session_state.coords_target = ""
-    sync_input_to_marker("coords_target", "picked_a") # Reusing 'picked_a' state for simplified map logic
 
     with col1:
-         # Check for map picks (Update State directly)
+         # Check for map picks (Update State from Map -> Input)
         if st.session_state.get('picked_a'):
             st.session_state.coords_target = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
             st.session_state.picked_a = None 
