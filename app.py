@@ -245,7 +245,7 @@ def main():
         c_a_h, c_a_z = st.columns([3, 1])
         with c_a_h: st.markdown("### Point A (Origin)")
         with c_a_z:
-            if st.button("⌖ Zoom", key="zoom_a", help="Center map on Point A"):
+            if st.button("⌖", key="zoom_a", help="Center map on Point A"):
                 # Read current input from state
                 cur_val = st.session_state.get("coords_a", "")
                 lat_z, lon_z = parse_coords(cur_val)
@@ -270,7 +270,7 @@ def main():
         c_b_h, c_b_z = st.columns([3, 1])
         with c_b_h: st.markdown("### Point B (Target)")
         with c_b_z:
-            if st.button("⌖ Zoom", key="zoom_b", help="Center map on Point B"):
+            if st.button("⌖", key="zoom_b", help="Center map on Point B"):
                  cur_val = st.session_state.get("coords_b", "")
                  lat_z, lon_z = parse_coords(cur_val)
                  if lat_z and lon_z:
