@@ -131,6 +131,45 @@ def main():
         # File removed -> Clear data
         st.session_state.site_data = None
     
+    # --- SITE SEARCH FEATURE ---
+    if st.session_state.site_data is not None and len(st.session_state.site_data) > 0:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔍 Search Sites")
+        
+        # Search input
+        search_query = st.sidebar.text_input("Search by ID or Attribute", placeholder="e.g., SITE001, Mumbai, Sector", key="site_search")
+        
+        # Initialize search results in session state
+        if 'search_results' not in st.session_state:
+            st.session_state.search_results = []
+        
+        if search_query:
+            # Search across all columns
+            df = st.session_state.site_data
+            mask = df.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+            matches = df[mask]
+            
+            st.session_state.search_results = matches.to_dict('records') if not matches.empty else []
+            
+            if not matches.empty:
+                st.sidebar.success(f"Found {len(matches)} site(s)")
+                
+                # Show results as clickable list
+                for i, row in matches.iterrows():
+                    site_label = f"📍 {row.get('Site_ID', 'Unknown')}"
+                    if st.sidebar.button(site_label, key=f"search_result_{i}", use_container_width=True):
+                        # Zoom to this site
+                        st.session_state.map_center = [row['Latitude'], row['Longitude']]
+                        st.session_state.map_zoom = 16
+                        st.session_state.selected_search_site = row.to_dict()
+                        st.session_state.force_map_update = True
+                        st.rerun()
+            else:
+                st.sidebar.warning("No sites found matching your search.")
+        else:
+            st.session_state.search_results = []
+            st.session_state.selected_search_site = None
+    
     # ----------------------
     if 'locked_point' not in st.session_state:
         st.session_state.locked_point = None
@@ -275,6 +314,37 @@ def main():
                     tooltip=str(row['Site_ID']),
                     color="blue", fill=True, fill_color="blue"
                 ).add_to(m)
+    
+    # --- HIGHLIGHT SEARCH RESULTS ON MAP ---
+    if st.session_state.get('search_results'):
+        for site in st.session_state.search_results:
+            folium.Marker(
+                location=[site['Latitude'], site['Longitude']],
+                popup=f"🔍 <b>{site.get('Site_ID', 'Unknown')}</b><br>{site}",
+                tooltip=f"🔍 {site.get('Site_ID', 'Search Result')}",
+                icon=folium.Icon(color='orange', icon='star', prefix='fa')
+            ).add_to(m)
+    
+    # --- HIGHLIGHT SELECTED SEARCH SITE ---
+    if st.session_state.get('selected_search_site'):
+        site = st.session_state.selected_search_site
+        # Add pulsing circle for selected site
+        folium.CircleMarker(
+            location=[site['Latitude'], site['Longitude']],
+            radius=20,
+            color='yellow',
+            fill=True,
+            fill_color='yellow',
+            fill_opacity=0.5,
+            weight=3
+        ).add_to(m)
+        
+        # Add info popup
+        folium.Marker(
+            location=[site['Latitude'], site['Longitude']],
+            popup=f"<b>📍 {site.get('Site_ID', 'Selected')}</b><br>Lat: {site['Latitude']}<br>Lon: {site['Longitude']}",
+            icon=folium.Icon(color='red', icon='bullseye', prefix='fa')
+        ).add_to(m)
 
     # --- SYNC MANUAL INPUTS TO MARKERS ---
     # Convert text inputs to markers so they appear when typing
