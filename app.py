@@ -69,6 +69,7 @@ def main():
             st.caption("Click on the map to set points (Green = Point A, Red = Point B).")
         with c_opt:
              map_style = st.selectbox("Map Layer", ["Street", "Satellite", "Terrain"], label_visibility="collapsed")
+             pick_enabled = st.checkbox("📍 Enable Picking", value=False, help="Turn on to select points from the map.")
         
         # Initialize Pick State
         if 'pick_state' not in st.session_state:
@@ -171,7 +172,7 @@ def main():
         map_out = st_folium(m, width=None, height=500, key="main_map_interface")
 
         # Handle Interaction
-        if map_out and map_out.get("last_clicked"):
+        if pick_enabled and map_out and map_out.get("last_clicked"):
             lat_c = map_out["last_clicked"]["lat"]
             lng_c = map_out["last_clicked"]["lng"]
             
