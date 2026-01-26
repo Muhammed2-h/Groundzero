@@ -12,29 +12,50 @@ OPEN_METEO_ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
 # Create a session for connection pooling to improve performance
 session = requests.Session()
 
+import time
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_batch_cached(lats_str: str, lons_str: str) -> List[float]:
     """
     Cached helper to fetch a batch of elevations. 
     Arguments are strings to make them hashable for st.cache_data.
     Uses requests.Session for connection pooling.
+    Includes Retry Logic for stability.
     """
     params = {
         "latitude": lats_str,
         "longitude": lons_str
     }
     
-    try:
-        # Use the global session for keep-alive
-        response = session.get(OPEN_METEO_ELEVATION_URL, params=params, timeout=5)
-        if response.status_code != 200:
-            print(f"API returned {response.status_code}: {response.text}")
-        response.raise_for_status()
-        data = response.json()
-        return data.get('elevation', [])
-    except Exception as e:
-        print(f"Batch Error details: {e}")
-        return None
+    max_retries = 3
+    base_delay = 1.0 # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Use the global session for keep-alive
+            response = session.get(OPEN_METEO_ELEVATION_URL, params=params, timeout=10)
+            
+            # Rate Limit Handling (429)
+            if response.status_code == 429:
+                wait = float(response.headers.get('Retry-After', 2.0))
+                time.sleep(wait)
+                continue # Retry
+                
+            if response.status_code != 200:
+                print(f"API returned {response.status_code}: {response.text}")
+                response.raise_for_status()
+                
+            data = response.json()
+            return data.get('elevation', [])
+            
+        except (requests.exceptions.RequestException, ConnectionError) as e:
+            print(f"Batch Attempt {attempt+1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(base_delay * (2 ** attempt)) # Exponential Backoff
+            else:
+                 # Return None so the caller knows it failed after all retries
+                return None
+    return None
 
 def get_elevations(locations: List[Tuple[float, float]], batch_size: int = 100) -> List[float]:
     """
@@ -54,8 +75,8 @@ def get_elevations(locations: List[Tuple[float, float]], batch_size: int = 100) 
         batches.append((i, batch))
 
     # Parallel Fetch
-    # Using 4 workers providing a balance between speed and API politeness
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+    # Reduced to 2 workers to prevent Rate Limiting / Instability on free tier
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         future_to_batch = {}
         for i, batch in batches:
             # Join lats/lons into strings for the API (and for caching key)
