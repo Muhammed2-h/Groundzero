@@ -319,10 +319,14 @@ def main():
             valid_candidates = []
             
             # Iterate and Score
+            # Iterate and Score
+            scored_candidates = []
+            
             for idx, row in candidates.iterrows():
                 # Check Azimuth
-                is_facing = True
                 bearing_to_target = calculate_bearing(row['Latitude'], row['Longitude'], target_lat, target_lon)
+                
+                score = row['Distance_km'] # Base score is distance (lower is better)
                 
                 if 'Azimuth' in row and pd.notnull(row['Azimuth']):
                     site_az = float(row['Azimuth'])
@@ -330,14 +334,21 @@ def main():
                     diff = abs(site_az - bearing_to_target)
                     if diff > 180: diff = 360 - diff
                     
+                    # If it's outside the main beam, penalize the score significantly
+                    # effectively sorting "Facing" sites to the top, but keeping "Side/Back" sites as backups
                     if diff > (beam_width / 2):
-                        is_facing = False
+                       score += 1000 # Large penalty to push to bottom of list
                 
-                if is_facing:
-                    valid_candidates.append(row)
+                # Store tuple (Score, Row)
+                scored_candidates.append((score, row))
+            
+            # Sort by Score (Distance + Penalty)
+            scored_candidates.sort(key=lambda x: x[0])
+            
+            valid_candidates = [x[1] for x in scored_candidates]
             
             if not valid_candidates:
-                st.warning("No sites found facing the target location (check Sector Beam Width settings).")
+                st.warning("No sites found in radius.")
                 st.stop()
                 
             # Create DF from valid
