@@ -190,15 +190,32 @@ def main():
     map_out = st_folium(m, width=None, height=500, key="main_map_interface")
 
     # Update Persisted Center/Zoom
-    # We guard this with a flag 'force_map_update'. 
-    # If we just programmatically moved the map (Zoom Button), we DO NOT want to read back from the map 
-    # immediately, as it might return the old state before the frontend updates.
+    # Logic: Sync Frontend State -> Backend State
     if not st.session_state.get('force_map_update', False):
         if map_out:
+            changed = False
+            
+            # 1. Update Center
             if "center" in map_out and map_out["center"]:
-               st.session_state.map_center = [map_out["center"]["lat"], map_out["center"]["lng"]]
+                new_lat = map_out["center"]["lat"]
+                new_lon = map_out["center"]["lng"]
+                old_lat, old_lon = st.session_state.map_center
+                # Use small epsilon for float comparison to avoid infinite loops on tiny drifts
+                if abs(new_lat - old_lat) > 0.0001 or abs(new_lon - old_lon) > 0.0001:
+                    st.session_state.map_center = [new_lat, new_lon]
+                    changed = True
+
+            # 2. Update Zoom
             if "zoom" in map_out:
-               st.session_state.map_zoom = map_out["zoom"]
+                new_zoom = map_out["zoom"]
+                if new_zoom != st.session_state.map_zoom:
+                    st.session_state.map_zoom = new_zoom
+                    changed = True
+            
+            # 3. If User moved the map, Rerun to update the Folium object
+            # This prevents "Snap Back" where the Python rerun creates a map with old coords
+            if changed:
+                st.rerun()
     else:
         # Reset the flag after one render cycle so manual panning works again next time
         st.session_state.force_map_update = False
