@@ -41,6 +41,7 @@ def main():
         if df_sites is not None:
             st.session_state.site_data = df_sites
             st.session_state.sites_just_loaded = True # Flag to center map
+            st.session_state.force_map_update = True # Critical: Force map to respect this update
             st.sidebar.success(f"Loaded {len(df_sites)} sites!")
         else:
             st.sidebar.error(error)
