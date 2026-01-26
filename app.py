@@ -107,6 +107,7 @@ def main():
     if st.session_state.site_data is not None:
          # Add markers / Sectors
         for _, row in st.session_state.site_data.iterrows():
+            # ... (Site drawing logic remains same, just preserving context) ...
             # Check for Azimuth
             has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
             
@@ -130,6 +131,17 @@ def main():
                     tooltip=str(row['Site_ID']),
                     color="blue", fill=True, fill_color="blue"
                 ).add_to(m)
+
+    # --- SYNC MANUAL INPUTS TO MARKERS ---
+    # Convert text inputs to markers so they appear when typing
+    def sync_input_to_marker(key, marker_key):
+        val = st.session_state.get(key, "")
+        lat_v, lon_v = parse_coords(val)
+        if lat_v and lon_v:
+            st.session_state[marker_key] = [lat_v, lon_v]
+
+    sync_input_to_marker("coords_a", "picked_a")
+    sync_input_to_marker("coords_b", "picked_b")
 
     # Draw Picked Points
     if st.session_state.picked_a:
