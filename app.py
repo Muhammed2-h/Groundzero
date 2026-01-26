@@ -402,6 +402,10 @@ def main():
                 a_name_col = next((c for c in df.columns if 'a_' in c and 'name' in c), None)
                 b_name_col = next((c for c in df.columns if 'b_' in c and 'name' in c), None)
                 
+                # Optional Heights (Look for 'a_height', 'a_h', etc)
+                a_h_col = next((c for c in df.columns if 'a_' in c and ('height' in c or '_h' in c)), None)
+                b_h_col = next((c for c in df.columns if 'b_' in c and ('height' in c or '_h' in c)), None)
+                
                 with st.spinner("Processing batch..."):
                     bar = st.progress(0)
                     for i, row in df.iterrows():
@@ -409,10 +413,15 @@ def main():
                         name_a = str(row[a_name_col]) if a_name_col else f"Point A ({i+1})"
                         name_b = str(row[b_name_col]) if b_name_col else f"Point B ({i+1})"
                         
+                        # Extract Heights (Default 10m)
+                        h_a_val = float(row[a_h_col]) if a_h_col else 10.0
+                        h_b_val = float(row[b_h_col]) if b_h_col else 10.0
+                        
                         # Run Analysis
                         res = analyze_terrain_profile(
                             row[a_lat_col], row[a_lon_col], 
                             row[b_lat_col], row[b_lon_col],
+                            h_start_agl=h_a_val, h_end_agl=h_b_val,
                             name_a=name_a, name_b=name_b
                         )
                         
