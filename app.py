@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import folium
+from folium import DivIcon
+from folium.plugins import Draw, SemiCircle
 from streamlit_folium import st_folium
 import plotly.graph_objects as go
 import math
@@ -297,7 +299,6 @@ def main():
             
             if has_azimuth:
                 az = float(row['Azimuth'])
-                from folium.plugins import SemiCircle
                 SemiCircle(
                     location=[row['Latitude'], row['Longitude']],
                     radius=sector_radius_km * 1000,
@@ -347,14 +348,6 @@ def main():
             icon=folium.Icon(color='red', icon='bullseye', prefix='fa')
         ).add_to(m)
 
-    # --- SYNC MANUAL INPUTS TO MARKERS ---
-    # Convert text inputs to markers so they appear when typing
-    def sync_input_to_marker(key, marker_key):
-        val = st.session_state.get(key, "")
-        lat_v, lon_v = parse_coords(val)
-        if lat_v and lon_v:
-            st.session_state[marker_key] = [lat_v, lon_v]
-
     # Draw Picked Target
     if st.session_state.coords_target:
         lat_t, lon_t = parse_coords(st.session_state.coords_target)
@@ -367,9 +360,6 @@ def main():
         
     # Draw Analysis Results (if any)
     if st.session_state.results:
-        # Draw ALL lines, not just one
-        from folium import DivIcon
-        
         for i, res in enumerate(st.session_state.results):
             raw = res["Raw"]
             color = "red" if raw["blocked"] else "green"
@@ -553,7 +543,6 @@ def main():
                 pass 
                 
             # 2. Azimuth Check (if valid)
-            import math
             
             def calculate_bearing(lat1, lon1, lat2, lon2):
                 # Bearing from Site (lat1, lon1) to Target (lat2, lon2)
@@ -606,7 +595,6 @@ def main():
                 
                 # Using V3 Analysis with Advanced RF Parameters
                 # Calculate bearing to target for antenna pattern
-                import math
                 d_lon = target_lon - row['Longitude']
                 y = math.sin(math.radians(d_lon)) * math.cos(math.radians(target_lat))
                 x = math.cos(math.radians(row['Latitude'])) * math.sin(math.radians(target_lat)) - \

@@ -4,7 +4,6 @@ import numpy as np
 from geopy.distance import geodesic
 from typing import List, Tuple, Dict
 import streamlit as st
-import concurrent.futures
 import time
 
 # === MULTIPLE ELEVATION API SOURCES ===
