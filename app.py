@@ -258,14 +258,20 @@ def main():
     st.divider()
     
     # Analysis Settings
-    c_res, c_rad = st.columns(2)
-    with c_res:
-        max_results = st.slider("Max Results to View", min_value=1, max_value=50, value=5)
-    with c_rad:
+    st.subheader("⚙️ Search Criteria")
+    criteria_mode = st.radio("Search By:", ["Nearest Neighbors (Count)", "Fixed Radius (Distance)"], horizontal=True)
+    
+    max_results = 5
+    search_radius_km = 99999.0 # Infinity effectively
+    
+    if criteria_mode == "Nearest Neighbors (Count)":
+        max_results = st.slider("Number of Sites to Find", min_value=1, max_value=20, value=5)
+    else:
         search_radius_km = st.slider("Search Radius (km)", min_value=1.0, max_value=100.0, value=10.0)
+        max_results = 100 # High cap for radius mode to show all
 
     # Action
-    if st.button("Find Best Sites & Analyze Terrain", type="primary"):
+    if st.button("Find Sites & Analyze Terrain", type="primary"):
         target_lat, target_lon = parse_coords(t_input)
         
         if not target_lat or not target_lon:
@@ -278,7 +284,7 @@ def main():
             
         st.session_state.results = [] # Clear previous
         
-        with st.spinner("Finding best candidates..."):
+        with st.spinner("Finding candidates..."):
             sites = st.session_state.site_data.copy()
             
             # 1. Calculate Distances
@@ -289,12 +295,19 @@ def main():
                 
             sites['Distance_km'] = sites.apply(get_dist, axis=1)
             
-            # Filter by Radius
-            candidates = sites[sites['Distance_km'] <= search_radius_km].copy()
+            # Filter Logic based on Criteria
+            candidates = sites
             
-            if candidates.empty:
-                st.warning(f"No sites found within {search_radius_km}km radius.")
-                st.stop()
+            if criteria_mode == "Fixed Radius (Distance)":
+                 # Radius Mode: Hard Filter on Distance first
+                 candidates = sites[sites['Distance_km'] <= search_radius_km].copy()
+                 if candidates.empty:
+                    st.warning(f"No sites found within {search_radius_km}km radius.")
+                    st.stop()
+            else:
+                # Count Mode: Sort by distance immediately to get nearest
+                # We do this later in scoring, but good to know
+                pass 
                 
             # 2. Azimuth Check (if valid)
             import math
@@ -308,44 +321,39 @@ def main():
                 brng = math.degrees(math.atan2(y, x))
                 return (brng + 360) % 360
 
-            valid_candidates = []
-            
-            # Iterate and Score
-            # Iterate and Score
+            # 2. Score & Sort (Distance + Azimuth Penalty)
             scored_candidates = []
             
             for idx, row in candidates.iterrows():
                 # Check Azimuth
                 bearing_to_target = calculate_bearing(row['Latitude'], row['Longitude'], target_lat, target_lon)
                 
-                score = row['Distance_km'] # Base score is distance (lower is better)
+                score = row['Distance_km'] # Base score
                 
                 if 'Azimuth' in row and pd.notnull(row['Azimuth']):
                     site_az = float(row['Azimuth'])
-                    # Difference
                     diff = abs(site_az - bearing_to_target)
                     if diff > 180: diff = 360 - diff
                     
-                    # If it's outside the main beam, penalize the score significantly
-                    # effectively sorting "Facing" sites to the top, but keeping "Side/Back" sites as backups
                     if diff > (beam_width / 2):
-                       score += 1000 # Large penalty to push to bottom of list
+                       score += 1000 # Penalty
                 
-                # Store tuple (Score, Row)
                 scored_candidates.append((score, row))
             
-            # Sort by Score (Distance + Penalty)
+            # Sort
             scored_candidates.sort(key=lambda x: x[0])
             
-            valid_candidates = [x[1] for x in scored_candidates]
+            # Select Top N
+            # In Radius mode, max_results is 100 (effectively "All in Radius")
+            # In Count mode, max_results is user selected (e.g. 5)
+            final_selection = [x[1] for x in scored_candidates[:max_results]]
             
-            if not valid_candidates:
-                st.warning("No sites found in radius.")
+            # Create DF
+            df_valid = pd.DataFrame(final_selection)
+            
+            if df_valid.empty:
+                st.warning("No valid candidates found.")
                 st.stop()
-                
-            # Create DF from valid
-            df_valid = pd.DataFrame(valid_candidates)
-            df_valid = df_valid.sort_values('Distance_km').head(max_results)
             
             # 3. Run Analysis on Top N
             progress_bar = st.progress(0)
