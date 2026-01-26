@@ -13,14 +13,11 @@ def main():
     # Force Reload Trigger
     st.markdown("""
     Check for terrain obstructions between two geographic points using Open-Elevation data.
-    Suports **Manual Entry**, **Locked One-to-Many**, and **Batch CSV** modes.
+    Supports **Manual Entry** and **Locked One-to-Many** modes.
     """)
 
     # --- Sidebar Controls ---
     st.sidebar.header("Configuration")
-    
-    # Mode Selection
-    mode = st.sidebar.radio("Input Mode", ["Manual", "Batch CSV"])
     
     # --- SITE DATA IMPORT ---
     st.sidebar.markdown("---")
@@ -202,217 +199,142 @@ def main():
     # ----------------------
     # MANUAL MODE LOGIC
     # ----------------------
-    if mode == "Manual":
-        st.subheader("📍 Coordinate Input")
-        
-        # Locking Controls
-        use_locking = st.checkbox("Enable Point Locking (One-to-Many)", help="Fix one point and analyze multiple targets.")
-        
-        col1, col2 = st.columns(2)
-        
-        # Helper for parsing
-        def parse_coords(coord_str):
-            try:
-                if not coord_str: return None, None
-                parts = coord_str.split(',')
-                if len(parts) != 2: return None, None
-                return float(parts[0].strip()), float(parts[1].strip())
-            except ValueError:
-                return None, None
+    # ----------------------
+    # MANUAL MODE LOGIC (Now Default)
+    # ----------------------
+    st.subheader("📍 Coordinate Input")
+    
+    # Locking Controls
+    use_locking = st.checkbox("Enable Point Locking (One-to-Many)", help="Fix one point and analyze multiple targets.")
+    
+    col1, col2 = st.columns(2)
+    
+    # Helper for parsing
+    def parse_coords(coord_str):
+        try:
+            if not coord_str: return None, None
+            parts = coord_str.split(',')
+            if len(parts) != 2: return None, None
+            return float(parts[0].strip()), float(parts[1].strip())
+        except ValueError:
+            return None, None
 
-        # --- INPUT LOGIC (MANUAL + MAP PICK) ---
-        a_lat, a_lon, b_lat, b_lon = None, None, None, None
+    # --- INPUT LOGIC (MANUAL + MAP PICK) ---
+    a_lat, a_lon, b_lat, b_lon = None, None, None, None
 
-        # Point A Inputs (Manual)
-        with col1:
-            st.markdown("### Point A (Origin)")
+    # Point A Inputs (Manual)
+    with col1:
+        st.markdown("### Point A (Origin)")
+        # Check for map picks
+        val_a = "0.0, 0.0"
+        if st.session_state.get('picked_a'):
+            val_a = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
+            
+        a_input = st.text_input("Coordinates A (Lat, Lon)", value=val_a, help="Format: Latitude, Longitude")
+        h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a")
+        
+    # Point B Inputs (Manual)
+    with col2:
+        st.markdown("### Point B (Target)")
             # Check for map picks
-            val_a = "0.0, 0.0"
-            if st.session_state.get('picked_a'):
-                val_a = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
-                
-            a_input = st.text_input("Coordinates A (Lat, Lon)", value=val_a, help="Format: Latitude, Longitude")
-            h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a")
+        val_b = "0.0, 0.0"
+        if st.session_state.get('picked_b'):
+            val_b = f"{st.session_state.picked_b[0]:.6f}, {st.session_state.picked_b[1]:.6f}"
             
-        # Point B Inputs (Manual)
-        with col2:
-            st.markdown("### Point B (Target)")
-                # Check for map picks
-            val_b = "0.0, 0.0"
-            if st.session_state.get('picked_b'):
-                val_b = f"{st.session_state.picked_b[0]:.6f}, {st.session_state.picked_b[1]:.6f}"
-                
-            b_input = st.text_input("Coordinates B (Lat, Lon)", value=val_b, help="Format: Latitude, Longitude")
-            h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b")
+        b_input = st.text_input("Coordinates B (Lat, Lon)", value=val_b, help="Format: Latitude, Longitude")
+        h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b")
 
-        # Parse Inputs
-        a_lat, a_lon = parse_coords(a_input)
-        b_lat, b_lon = parse_coords(b_input)
+    # Parse Inputs
+    a_lat, a_lon = parse_coords(a_input)
+    b_lat, b_lon = parse_coords(b_input)
 
-        # Logic for "Locking" Feature in Manual Mode
-        target_df = None
+    # Logic for "Locking" Feature in Manual Mode
+    target_df = None
+    
+    if use_locking:
+        lock_choice = st.radio("Lock which point?", ["Point A", "Point B"], horizontal=True)
         
-        if use_locking:
-            lock_choice = st.radio("Lock which point?", ["Point A", "Point B"], horizontal=True)
-            
-            st.info(f"🔒 {lock_choice} is locked. Upload a CSV for the other points.")
-            
-            uploaded_file = st.file_uploader("Upload Targets CSV", type=["csv"])
-            if uploaded_file:
-                target_df = pd.read_csv(uploaded_file)
-                st.write("Preview of targets:", target_df.head())
+        st.info(f"🔒 {lock_choice} is locked. Upload a CSV for the other points.")
         
-        # Action Button
-        if st.button("Run Analysis", type="primary"):
-            # Validation
-            if a_lat is None or a_lon is None:
-                st.error("❌ Invalid coordinates for Point A. Please use format 'lat, lon' (e.g., 9.123, 76.456)")
-                st.stop()
-            if b_lat is None or b_lon is None:
-                st.error("❌ Invalid coordinates for Point B. Please use format 'lat, lon' (e.g., 9.123, 76.456)")
-                st.stop()
+        uploaded_file = st.file_uploader("Upload Targets CSV", type=["csv"])
+        if uploaded_file:
+            target_df = pd.read_csv(uploaded_file)
+            st.write("Preview of targets:", target_df.head())
+    
+    # Action Button
+    if st.button("Run Analysis", type="primary"):
+        # Validation
+        if a_lat is None or a_lon is None:
+            st.error("❌ Invalid coordinates for Point A. Please use format 'lat, lon' (e.g., 9.123, 76.456)")
+            st.stop()
+        if b_lat is None or b_lon is None:
+            st.error("❌ Invalid coordinates for Point B. Please use format 'lat, lon' (e.g., 9.123, 76.456)")
+            st.stop()
 
-            st.session_state.results = [] # Clear previous
-            with st.spinner("Analyzing terrain..."):
-                
-                if not use_locking:
-                    res = analyze_terrain_profile(a_lat, a_lon, b_lat, b_lon, h_start_agl=h_a, h_end_agl=h_b)
-                    if res.get("status") == "Success":
-                        st.session_state.results.append({
-                            "ID": "Manual_1",
-                            "Path Name": "Manual Path",
-                            "Point A": f"{a_lat},{a_lon} ({h_a}m)",
-                            "Point B": f"{b_lat},{b_lon} ({h_b}m)",
-                            "Distance (km)": res["dataframe"]["distance_km"].max(),
-                            "Status": "BLOCKED" if res["blocked"] else "CLEAR",
-                            "Max Obstruction (m)": res["max_obstruction_height"],
-                            "Raw": res
-                        })
-                    else:
-                        st.error(res.get("message"))
-
-                # Case 2: One-to-Many (Locked)
+        st.session_state.results = [] # Clear previous
+        with st.spinner("Analyzing terrain..."):
+            
+            if not use_locking:
+                res = analyze_terrain_profile(a_lat, a_lon, b_lat, b_lon, h_start_agl=h_a, h_end_agl=h_b)
+                if res.get("status") == "Success":
+                    st.session_state.results.append({
+                        "ID": "Manual_1",
+                        "Path Name": "Manual Path",
+                        "Point A": f"{a_lat},{a_lon} ({h_a}m)",
+                        "Point B": f"{b_lat},{b_lon} ({h_b}m)",
+                        "Distance (km)": res["dataframe"]["distance_km"].max(),
+                        "Status": "BLOCKED" if res["blocked"] else "CLEAR",
+                        "Max Obstruction (m)": res["max_obstruction_height"],
+                        "Raw": res
+                    })
                 else:
-                    if target_df is None:
-                        st.error("Please upload a CSV file definition for the target points.")
-                    else:
-                        # We need to identify lat/lon columns loosely
-                        cols = [c.lower() for c in target_df.columns]
-                        
-                        # Simple heuristics to find columns
-                        lat_col = next((c for c in target_df.columns if "lat" in c.lower()), None)
-                        lon_col = next((c for c in target_df.columns if "lon" in c.lower() or "lng" in c.lower()), None)
-                        
-                        if not lat_col or not lon_col:
-                            st.error(f"Could not automatically detect 'lat' and 'lon' columns in CSV. Found: {target_df.columns.tolist()}")
-                        else:
-                            # Iterate
-                            progress_bar = st.progress(0)
-                            for idx, row in target_df.iterrows():
-                                t_lat = row[lat_col]
-                                t_lon = row[lon_col]
-                                
-                                # Use locked height vs default 10m for targets (unless CSV has height logic, but for MVP we use default 10m for targets)
-                                # Actually, it would be smart to look for "height" column in CSV? 
-                                # Let's assume targets are 10m for now unless we wanna over-engineer.
-                                h_target = 10.0
-                                
-                                if lock_choice == "Point A":
-                                    # Fixed A (height h_a), Varying B (height 10)
-                                    res = analyze_terrain_profile(a_lat, a_lon, t_lat, t_lon, h_start_agl=h_a, h_end_agl=h_target)
-                                else:
-                                    # Varying A, Fixed B
-                                    res = analyze_terrain_profile(t_lat, t_lon, b_lat, b_lon, h_start_agl=h_target, h_end_agl=h_b)
-                                
-                                if res.get("status") == "Success":
-                                    st.session_state.results.append({
-                                        "ID": f"Target_{idx}",
-                                        "Point A": f"{a_lat},{a_lon}" if lock_choice == "Point A" else f"{t_lat},{t_lon}",
-                                        "Point B": f"{t_lat},{t_lon}" if lock_choice == "Point A" else f"{b_lat},{b_lon}",
-                                        "Distance (km)": res["dataframe"]["distance_km"].max(),
-                                        "Status": "BLOCKED" if res["blocked"] else "CLEAR",
-                                        "Max Obstruction (m)": res["max_obstruction_height"],
-                                        "Raw": res
-                                    })
-                                
-                                progress_bar.progress((idx + 1) / len(target_df))
+                    st.error(res.get("message"))
 
-    # ----------------------
-    # BATCH CSV MODE
-    # ----------------------
-    elif mode == "Batch CSV":
-        st.subheader("📂 Batch Analysis")
-        
-        # Template Download
-        template_csv = "A_name,A_lat,A_long,B_name,B_lat,B_long\nKochi,9.9312,76.2673,Munnar,10.0889,77.0595"
-        st.download_button(
-            label="Download CSV Template",
-            data=template_csv,
-            file_name="terrain_analysis_template.csv",
-            mime="text/csv",
-            help="Download a sample CSV file to fill in your coordinates."
-        )
-        
-        st.markdown("Upload a CSV with columns: `A_lat`, `A_long`, `B_lat`, `B_long` (Names optional)")
-        
-        batch_file = st.file_uploader("Upload Batch CSV", type=["csv"], key="batch_upload")
-        
-        if batch_file and st.button("Run Batch Analysis"):
-            st.session_state.results = [] # Clear previous
-            df = pd.read_csv(batch_file)
-            # Normalize Headers
-            df.columns = df.columns.str.lower().str.strip()
-            
-            # Map columns
-            try:
-                # Required
-                a_lat_col = next(c for c in df.columns if 'a_' in c and 'lat' in c)
-                a_lon_col = next(c for c in df.columns if 'a_' in c and ('lon' in c or 'lng' in c))
-                b_lat_col = next(c for c in df.columns if 'b_' in c and 'lat' in c)
-                b_lon_col = next(c for c in df.columns if 'b_' in c and ('lon' in c or 'lng' in c))
-                
-                # Optional Names
-                a_name_col = next((c for c in df.columns if 'a_' in c and 'name' in c), None)
-                b_name_col = next((c for c in df.columns if 'b_' in c and 'name' in c), None)
-                
-                # Optional Heights (Look for 'a_height', 'a_h', etc)
-                a_h_col = next((c for c in df.columns if 'a_' in c and ('height' in c or '_h' in c)), None)
-                b_h_col = next((c for c in df.columns if 'b_' in c and ('height' in c or '_h' in c)), None)
-                
-                with st.spinner("Processing batch..."):
-                    bar = st.progress(0)
-                    for i, row in df.iterrows():
-                        # Extract Names
-                        name_a = str(row[a_name_col]) if a_name_col else f"Point A ({i+1})"
-                        name_b = str(row[b_name_col]) if b_name_col else f"Point B ({i+1})"
-                        
-                        # Extract Heights (Default 10m)
-                        h_a_val = float(row[a_h_col]) if a_h_col else 10.0
-                        h_b_val = float(row[b_h_col]) if b_h_col else 10.0
-                        
-                        # Run Analysis
-                        res = analyze_terrain_profile(
-                            row[a_lat_col], row[a_lon_col], 
-                            row[b_lat_col], row[b_lon_col],
-                            h_start_agl=h_a_val, h_end_agl=h_b_val,
-                            name_a=name_a, name_b=name_b
-                        )
-                        
-                        if res.get("status") == "Success":
-                            st.session_state.results.append({
-                                "ID": f"Batch_{i}",
-                                "Path Name": f"{name_a} -> {name_b}", # New friendly column
-                                "Point A": f"{row[a_lat_col]},{row[a_lon_col]}",
-                                "Point B": f"{row[b_lat_col]},{row[b_lon_col]}",
-                                "Distance (km)": res["dataframe"]["distance_km"].max(),
-                                "Status": "BLOCKED" if res["blocked"] else "CLEAR",
-                                "Max Obstruction (m)": res["max_obstruction_height"],
-                                "Raw": res
-                            })
-                        bar.progress((i + 1) / len(df))
-                        
-            except StopIteration:
-                st.error("Could not find required columns (A_lat, A_long, B_lat, B_long) in CSV.")
+            # Case 2: One-to-Many (Locked)
+            else:
+                if target_df is None:
+                    st.error("Please upload a CSV file definition for the target points.")
+                else:
+                    # We need to identify lat/lon columns loosely
+                    cols = [c.lower() for c in target_df.columns]
+                    
+                    # Simple heuristics to find columns
+                    lat_col = next((c for c in target_df.columns if "lat" in c.lower()), None)
+                    lon_col = next((c for c in target_df.columns if "lon" in c.lower() or "lng" in c.lower()), None)
+                    
+                    if not lat_col or not lon_col:
+                        st.error(f"Could not automatically detect 'lat' and 'lon' columns in CSV. Found: {target_df.columns.tolist()}")
+                    else:
+                        # Iterate
+                        progress_bar = st.progress(0)
+                        for idx, row in target_df.iterrows():
+                            t_lat = row[lat_col]
+                            t_lon = row[lon_col]
+                            
+                            # Use locked height vs default 10m for targets (unless CSV has height logic, but for MVP we use default 10m for targets)
+                            # Actually, it would be smart to look for "height" column in CSV? 
+                            # Let's assume targets are 10m for now unless we wanna over-engineer.
+                            h_target = 10.0
+                            
+                            if lock_choice == "Point A":
+                                # Fixed A (height h_a), Varying B (height 10)
+                                res = analyze_terrain_profile(a_lat, a_lon, t_lat, t_lon, h_start_agl=h_a, h_end_agl=h_target)
+                            else:
+                                # Varying A, Fixed B
+                                res = analyze_terrain_profile(t_lat, t_lon, b_lat, b_lon, h_start_agl=h_target, h_end_agl=h_b)
+                            
+                            if res.get("status") == "Success":
+                                st.session_state.results.append({
+                                    "ID": f"Target_{idx}",
+                                    "Point A": f"{a_lat},{a_lon}" if lock_choice == "Point A" else f"{t_lat},{t_lon}",
+                                    "Point B": f"{t_lat},{t_lon}" if lock_choice == "Point A" else f"{b_lat},{b_lon}",
+                                    "Distance (km)": res["dataframe"]["distance_km"].max(),
+                                    "Status": "BLOCKED" if res["blocked"] else "CLEAR",
+                                    "Max Obstruction (m)": res["max_obstruction_height"],
+                                    "Raw": res
+                                })
+                            
+                            progress_bar.progress((idx + 1) / len(target_df))
 
     # ----------------------
     # VISUALIZATION & OUTPUT
