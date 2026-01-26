@@ -182,6 +182,7 @@ def main():
                                 # Let's assume targets are 10m for now unless we wanna over-engineer.
                                 h_target = 10.0
                                 
+                                if lock_choice == "Point A":
                                     # Fixed A (height h_a), Varying B (height 10)
                                     res = analyze_terrain_profile(a_lat, a_lon, t_lat, t_lon, h_start_agl=h_a, h_end_agl=h_target)
                                 else:
