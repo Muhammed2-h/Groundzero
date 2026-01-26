@@ -97,12 +97,21 @@ def main():
         # FIX: We only set `location` to "Default/Sites" ONCE (when data changes). 
         # Otherwise, we use the `map_center` from session state, which we update from `map_out`.
 
-        # Logic: If sites were JUST loaded (a flag?), center on them. Else, use persistent center.
         if st.session_state.get('sites_just_loaded', False) and st.session_state.site_data is not None:
             sites = st.session_state.site_data
             st.session_state.map_center = [sites['Latitude'].mean(), sites['Longitude'].mean()]
             st.session_state.map_zoom = 10
             st.session_state.sites_just_loaded = False # Reset flag
+
+        # Configure Tiles
+        tiles = "OpenStreetMap"
+        attr = None
+        if map_style == "Satellite":
+            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            attr = "Esri World Imagery"
+        elif map_style == "Terrain":
+            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+            attr = "Esri World Topo"
 
         m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.map_zoom, tiles=tiles, attr=attr)
 
