@@ -78,7 +78,7 @@ def main():
     c_head, c_layer = st.columns([3, 1])
     with c_head:
         st.subheader("🌍 Map Interface")
-        st.caption("Tap/Click the map to set analysis target location.")
+        st.caption("Select the Marker Tool 📍 (top-left) to drop a pin.")
     with c_layer:
          map_style = st.selectbox("Style", ["Street", "Satellite", "Terrain"], label_visibility="collapsed")
     
