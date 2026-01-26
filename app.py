@@ -197,11 +197,11 @@ def main():
     # Helper for parsing (Global Helper)
     def parse_coords(coord_str):
         try:
-            if not coord_str: return None, None
+            if not coord_str or not isinstance(coord_str, str): return None, None
             parts = coord_str.split(',')
             if len(parts) != 2: return None, None
             return float(parts[0].strip()), float(parts[1].strip())
-        except ValueError:
+        except (ValueError, IndexError, AttributeError):
             return None, None
 
     # ----------------------
@@ -260,12 +260,15 @@ def main():
     
     # Add site locations
     if st.session_state.site_data is not None:
-        for _, row in st.session_state.site_data.iterrows():
+        df_sites = st.session_state.site_data
+        lat_col = next((c for c in df_sites.columns if c.lower() in ['latitude', 'lat', 'y']), 'Latitude')
+        lon_col = next((c for c in df_sites.columns if c.lower() in ['longitude', 'long', 'lon', 'x']), 'Longitude')
+        for _, row in df_sites.iterrows():
             try:
-                lat, lon = float(row['Latitude']), float(row['Longitude'])
-                if not pd.isna(lat) and not pd.isna(lon):
-                    all_points.append([lat, lon])
-            except (ValueError, TypeError):
+                lat_v, lon_v = float(row[lat_col]), float(row[lon_col])
+                if not pd.isna(lat_v) and not pd.isna(lon_v):
+                    all_points.append([lat_v, lon_v])
+            except (ValueError, TypeError, KeyError):
                 continue
     
     # Add target location
@@ -296,35 +299,42 @@ def main():
 
     # Draw Imported Sites (if any)
     if st.session_state.site_data is not None:
-        for idx, row in st.session_state.site_data.iterrows():
+        df = st.session_state.site_data
+        # Ensure we use the correct column names (case-sensitive normally but let's be safe)
+        lat_col = next((c for c in df.columns if c.lower() in ['latitude', 'lat', 'y']), 'Latitude')
+        lon_col = next((c for c in df.columns if c.lower() in ['longitude', 'long', 'lon', 'x']), 'Longitude')
+        name_col = next((c for c in df.columns if c.lower() in ['site_id', 'siteid', 'id', 'name']), 'Site_ID')
+        az_col = next((c for c in df.columns if c.lower() in ['azimuth', 'bearing', 'dir']), 'Azimuth')
+
+        for idx, row in df.iterrows():
             try:
-                lat = float(row['Latitude'])
-                lon = float(row['Longitude'])
+                lat = float(row[lat_col])
+                lon = float(row[lon_col])
                 if pd.isna(lat) or pd.isna(lon): continue
                 
                 # Check for Azimuth
-                has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
+                has_azimuth = az_col in row and pd.notnull(row[az_col])
                 
                 if has_azimuth:
-                    az = float(row['Azimuth'])
+                    az = float(row[az_col])
                     SemiCircle(
                         location=[lat, lon],
                         radius=sector_radius_km * 1000,
                         start_angle=az - (beam_width / 2),
                         stop_angle=az + (beam_width / 2),
                         color="blue", fill=True, fill_color="blue", fill_opacity=0.3,
-                        popup=f"ID: {row['Site_ID']}",
-                        tooltip=f"{row['Site_ID']}"
+                        popup=f"ID: {row[name_col]}",
+                        tooltip=f"{row[name_col]}"
                     ).add_to(m)
                 else:
                     folium.CircleMarker(
                         location=[lat, lon],
                         radius=5,
-                        popup=f"ID: {row['Site_ID']}",
-                        tooltip=str(row['Site_ID']),
+                        popup=f"ID: {row[name_col]}",
+                        tooltip=str(row[name_col]),
                         color="blue", fill=True, fill_color="blue"
                     ).add_to(m)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, KeyError):
                 continue # Skip invalid rows
     
     # --- HIGHLIGHT SEARCH RESULTS ON MAP ---
@@ -424,7 +434,7 @@ def main():
         width=None, 
         height=500, 
         key="main_map_interface",
-        returned_objects=["last_active_drawing", "zoom", "center"]
+        returned_objects=["last_active_drawing"]
     )
 
     # Handle Interaction (Draw Event)
@@ -432,16 +442,12 @@ def main():
         drawing = map_out["last_active_drawing"]
         
         # Check against previous to prevent Loop
-        if drawing != st.session_state.get('last_processed_drawing'):
+        if str(drawing) != str(st.session_state.get('last_processed_drawing')):
             if drawing['geometry']['type'] == 'Point':
-                # GeoJSON is [Lon, Lat]
                 lon_c, lat_c = drawing['geometry']['coordinates']
-                
-                # Update Target Directly
+                # Update Target
                 st.session_state.coords_target = f"{lat_c:.6f}, {lon_c:.6f}"
                 st.session_state.last_processed_drawing = drawing
-                st.session_state.force_map_update = True
-                st.toast(f"📍 Location set to {lat_c:.4f}, {lon_c:.4f}")
                 st.rerun()
     
     # Reset Button (Clear All)
