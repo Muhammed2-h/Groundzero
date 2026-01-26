@@ -197,7 +197,13 @@ def main():
 
             if raw["blocked"] and raw["obstruction_location"]:
                  obs_lat, obs_lon = raw["obstruction_location"]
-                 folium.CircleMarker([obs_lat, obs_lon], radius=2, color='red').add_to(m)
+                 
+                 # Prominent Obstruction Marker
+                 folium.Marker(
+                     [obs_lat, obs_lon],
+                     popup=f"⛔ Obstruction at {raw['max_obstruction_height']:.1f}m",
+                     icon=folium.Icon(color='red', icon='ban', prefix='fa')
+                 ).add_to(m)
 
     # Draw Control (For Intentional Pin Dropping)
     from folium.plugins import Draw
