@@ -114,11 +114,44 @@ def main():
                         color="blue", fill=True, fill_color="blue"
                     ).add_to(m)
 
+        # Draw Imported Sites (if any)
+        # ... (Existing Site Logic) ... Note: I'm not touching site logic here, just inserting result logic after it.
+        
+        # --- DRAW ANALYSIS RESULT (IF ANY) ---
+        # If we have results, draw the selected/latest one on this map too
+        if st.session_state.results:
+            # Determine which one to show. Defaults to latest or selected.
+            # Ideally we check what 'selected_id' is chosen below, but that variable isn't defined yet.
+            # Best is to show the LAST added result by default, or iterate all?
+            # Let's show the LAST result for immediate feedback.
+            latest_res = st.session_state.results[-1]["Raw"]
+            
+            # Line Color
+            color = "red" if latest_res["blocked"] else "green"
+            
+            # Path
+            path_coords = [(row['lat'], row['lon']) for _, row in latest_res['dataframe'].iterrows()]
+            folium.PolyLine(path_coords, color=color, weight=5, opacity=0.8).add_to(m)
+            
+            # Obstruction
+            if latest_res["blocked"] and latest_res["obstruction_location"]:
+                obs_lat, obs_lon = latest_res["obstruction_location"]
+                folium.Marker(
+                    [obs_lat, obs_lon], 
+                    popup=f"Max Obstruction: {latest_res['max_obstruction_height']:.2f}m",
+                    icon=folium.Icon(color="red", icon="exclamation-triangle", prefix="fa")
+                ).add_to(m)
+
         # Draw Picked Points
         if st.session_state.picked_a:
             folium.Marker(st.session_state.picked_a, popup="Point A", icon=folium.Icon(color='green', icon='play')).add_to(m)
         if st.session_state.picked_b:
             folium.Marker(st.session_state.picked_b, popup="Point B", icon=folium.Icon(color='red', icon='stop')).add_to(m)
+            
+        # If we have a result, we might want to fit bounds to it
+        if st.session_state.results:
+            latest_res = st.session_state.results[-1]["Raw"]
+            m.fit_bounds([latest_res["start_point"][:2], latest_res["end_point"][:2]])
 
         # Render Map & Capture Click
         map_out = st_folium(m, width=None, height=500, key="main_map_interface")
@@ -408,38 +441,12 @@ def main():
         selected_result = next(r for r in st.session_state.results if r["ID"] == selected_id)
         raw_data = selected_result["Raw"]
         
-        # 1. Folium Map
-        st.subheader("🗺️ Map Visualization")
-        
-        # Center map
-        start_pt = raw_data["start_point"]
-        end_pt = raw_data["end_point"]
-        mid_lat = (start_pt[0] + end_pt[0]) / 2
-        mid_lon = (start_pt[1] + end_pt[1]) / 2
-        
-        m = folium.Map(location=[mid_lat, mid_lon], zoom_start=12)
-        
-        # Line Color
-        color = "red" if raw_data["blocked"] else "green"
-        
-        # Markers
-        folium.Marker([start_pt[0], start_pt[1]], popup="Point A", icon=folium.Icon(color="blue", icon="play")).add_to(m)
-        folium.Marker([end_pt[0], end_pt[1]], popup="Point B", icon=folium.Icon(color="blue", icon="stop")).add_to(m)
-        
-        # Polyline
-        path_coords = [(row['lat'], row['lon']) for _, row in raw_data['dataframe'].iterrows()]
-        folium.PolyLine(path_coords, color=color, weight=5, opacity=0.8).add_to(m)
-        
-        # Obstruction Marker
         if raw_data["blocked"] and raw_data["obstruction_location"]:
-            obs_lat, obs_lon = raw_data["obstruction_location"]
-            folium.Marker(
-                [obs_lat, obs_lon], 
-                popup=f"Max Obstruction: {raw_data['max_obstruction_height']:.2f}m",
-                icon=folium.Icon(color="red", icon="exclamation-triangle", prefix="fa")
-            ).add_to(m)
-            
-        st_folium(m, width=None, height=500)
+            # Just show obstruction details in text or smaller UI, since map is above
+            st.warning(f"⚠️ Max Obstruction: {raw_data['max_obstruction_height']:.2f}m at {raw_data['obstruction_location']}")
+
+        # 2. Elevation Profile ("1" is now omitted as map is unified)
+        st.subheader("⛰️ Elevation Profile")
         
         # 2. Elevation Profile
         st.subheader("⛰️ Elevation Profile")
