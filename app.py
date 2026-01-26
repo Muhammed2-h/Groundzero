@@ -390,7 +390,6 @@ def main():
         
         # Convert to Dataframe for display
         res_df = pd.DataFrame([ {k:v for k,v in r.items() if k != "Raw"} for r in st.session_state.results ])
-        st.dataframe(res_df)
         
         # Download Button
         csv = res_df.to_csv(index=False).encode('utf-8')
@@ -403,21 +402,39 @@ def main():
         )
         
         # --- DETAIL VIEW ---
-        # If multiple results, let user select one to visualize
-        selected_id = st.selectbox("Select Path to Visualize", [r["ID"] for r in st.session_state.results])
-        
-        selected_result = next(r for r in st.session_state.results if r["ID"] == selected_id)
-        raw_data = selected_result["Raw"]
-        
-        if raw_data["blocked"] and raw_data["obstruction_location"]:
-            # Just show obstruction details in text or smaller UI, since map is above
-            st.warning(f"⚠️ Max Obstruction: {raw_data['max_obstruction_height']:.2f}m at {raw_data['obstruction_location']}")
+        st.subheader("🔍 Analysis Details")
+        st.caption("Select a row in the table below to view its Elevation Profile.")
 
-        # Line Color (Re-defined here as previous definition scope might be gone if map logic changes)
-        color = "red" if raw_data["blocked"] else "green"
+        # Interactive Dataframe
+        # We add a 'Select' column or just use the native selection if available.
+        # Streamlit 1.35+ supports on_select. Let's assume standard interactive table.
+        
+        selection = st.dataframe(
+            res_df,
+            on_select="rerun", # Enable row selection
+            selection_mode="single-row",
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        selected_index = 0 # Default to first
+        if selection and selection.selection and selection.selection["rows"]:
+             selected_index = selection.selection["rows"][0]
+        
+        if st.session_state.results:
+            # Match the DF row index to the Results list index
+            # (Assuming strict 1:1 mapping and order is preserved, which it is here)
+            selected_result = st.session_state.results[selected_index]
+            raw_data = selected_result["Raw"]
+            
+            if raw_data["blocked"] and raw_data["obstruction_location"]:
+                st.warning(f"⚠️ Max Obstruction: {raw_data['max_obstruction_height']:.2f}m at {raw_data['obstruction_location']}")
 
-        # 2. Elevation Profile
-        st.subheader("⛰️ Elevation Profile")
+            # Line Color
+            color = "red" if raw_data["blocked"] else "green"
+
+            # 2. Elevation Profile
+            st.subheader(f"⛰️ Elevation Profile: {selected_result['Path Name']}")
         
         df_chart = raw_data['dataframe']
         
