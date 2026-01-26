@@ -62,160 +62,152 @@ def main():
     # ----------------------
     # MANUAL MODE LOGIC
     # ----------------------
+    # ----------------------
+    # GLOBAL MAP INTERFACE
+    # ----------------------
+    st.subheader("🌍 Map Interface")
+    c_head, c_opt = st.columns([4, 2])
+    with c_head:
+        st.caption("Click on the map to set points for Manual Analysis.")
+    with c_opt:
+         map_style = st.selectbox("Map Layer", ["Street", "Satellite", "Terrain"], label_visibility="collapsed")
+         pick_enabled = st.checkbox("📍 Enable Picking", value=False, help="Turn on to select points from the map.")
+    
+    # Initialize Pick State
+    if 'pick_state' not in st.session_state:
+        st.session_state.pick_state = 'A'
+    if 'picked_a' not in st.session_state: st.session_state.picked_a = None
+    if 'picked_b' not in st.session_state: st.session_state.picked_b = None
+    
+    # State: Track Map Center/Zoom to prevent reset on interaction
+    if 'map_center' not in st.session_state:
+        st.session_state.map_center = [20.5937, 78.9629]
+        st.session_state.map_zoom = 5
+
+    # Base Map Center Logic
+    # FIX: We only set `location` to "Default/Sites" ONCE (when data changes). 
+    # Otherwise, we use the `map_center` from session state, which we update from `map_out`.
+
+    if st.session_state.get('sites_just_loaded', False) and st.session_state.site_data is not None:
+        sites = st.session_state.site_data
+        st.session_state.map_center = [sites['Latitude'].mean(), sites['Longitude'].mean()]
+        st.session_state.map_zoom = 10
+        st.session_state.sites_just_loaded = False # Reset flag
+
+    # Configure Tiles
+    tiles = "OpenStreetMap"
+    attr = None
+    if map_style == "Satellite":
+        tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        attr = "Esri World Imagery"
+    elif map_style == "Terrain":
+        tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+        attr = "Esri World Topo"
+
+    m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.map_zoom, tiles=tiles, attr=attr)
+
+    # Draw Imported Sites (if any)
+    if st.session_state.site_data is not None:
+         # Add markers / Sectors
+        for _, row in st.session_state.site_data.iterrows():
+            # Check for Azimuth
+            has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
+            
+            if has_azimuth:
+                az = float(row['Azimuth'])
+                from folium.plugins import SemiCircle
+                SemiCircle(
+                    location=[row['Latitude'], row['Longitude']],
+                    radius=sector_radius_km * 1000,
+                    start_angle=az - (beam_width / 2),
+                    stop_angle=az + (beam_width / 2),
+                    color="blue", fill=True, fill_color="blue", fill_opacity=0.3,
+                    popup=f"ID: {row['Site_ID']}",
+                    tooltip=f"{row['Site_ID']}"
+                ).add_to(m)
+            else:
+                folium.CircleMarker(
+                    location=[row['Latitude'], row['Longitude']],
+                    radius=5,
+                    popup=f"ID: {row['Site_ID']}",
+                    tooltip=str(row['Site_ID']),
+                    color="blue", fill=True, fill_color="blue"
+                ).add_to(m)
+
+    # Draw Picked Points
+    if st.session_state.picked_a:
+        folium.Marker(st.session_state.picked_a, popup="Point A", icon=folium.Icon(color='green', icon='play')).add_to(m)
+    if st.session_state.picked_b:
+        folium.Marker(st.session_state.picked_b, popup="Point B", icon=folium.Icon(color='red', icon='stop')).add_to(m)
+        
+    # Draw Analysis Results (if any)
+    if st.session_state.results:
+        # Determine which one to show. Show LAST result by default.
+        latest_res = st.session_state.results[-1]["Raw"]
+        
+        # Line Color
+        color = "red" if latest_res["blocked"] else "green"
+        
+        # Path
+        path_coords = [(row['lat'], row['lon']) for _, row in latest_res['dataframe'].iterrows()]
+        folium.PolyLine(path_coords, color=color, weight=5, opacity=0.8).add_to(m)
+        
+        # Obstruction
+        if latest_res["blocked"] and latest_res["obstruction_location"]:
+            obs_lat, obs_lon = latest_res["obstruction_location"]
+            folium.Marker(
+                [obs_lat, obs_lon], 
+                popup=f"Max Obstruction: {latest_res['max_obstruction_height']:.2f}m",
+                icon=folium.Icon(color="red", icon="exclamation-triangle", prefix="fa")
+            ).add_to(m)
+            
+        # Fit bounds if just calculated (optional, maybe distracting if picking multiple?)
+        # Let's keep manual pan/zoom for now.
+
+    # Render Map & Capture Click
+    map_out = st_folium(m, width=None, height=500, key="main_map_interface")
+
+    # Update Persisted Center/Zoom
+    if map_out:
+        if "center" in map_out and map_out["center"]:
+           st.session_state.map_center = [map_out["center"]["lat"], map_out["center"]["lng"]]
+        if "zoom" in map_out:
+           st.session_state.map_zoom = map_out["zoom"]
+
+    # Handle Interaction (Picking)
+    if pick_enabled and map_out and map_out.get("last_clicked"):
+        lat_c = map_out["last_clicked"]["lat"]
+        lng_c = map_out["last_clicked"]["lng"]
+        
+        if st.session_state.pick_state == 'A':
+            st.session_state.picked_a = [lat_c, lng_c]
+            st.session_state.pick_state = 'B'
+            st.toast(f"📍 Point A set")
+            st.rerun()
+        elif st.session_state.pick_state == 'B':
+            st.session_state.picked_b = [lat_c, lng_c]
+            st.session_state.pick_state = 'A'
+            st.toast(f"📍 Point B set")
+            st.rerun()
+    
+    # Reset Button for Picks
+    if st.button("Reset Selection Points"):
+        st.session_state.picked_a = None
+        st.session_state.picked_b = None
+        st.session_state.pick_state = 'A'
+        st.rerun()
+
+    st.divider()
+
+    # ----------------------
+    # MANUAL MODE LOGIC
+    # ----------------------
     if mode == "Manual":
         st.subheader("📍 Coordinate Input")
         
         # Locking Controls
         use_locking = st.checkbox("Enable Point Locking (One-to-Many)", help="Fix one point and analyze multiple targets.")
         
-        # --- MAP VISUALIZATION & PICKER ---
-        c_head, c_opt = st.columns([4, 2])
-        with c_head:
-            st.subheader("🌍 Map Interface")
-            st.caption("Click on the map to set points (Green = Point A, Red = Point B).")
-        with c_opt:
-             map_style = st.selectbox("Map Layer", ["Street", "Satellite", "Terrain"], label_visibility="collapsed")
-             pick_enabled = st.checkbox("📍 Enable Picking", value=False, help="Turn on to select points from the map.")
-        
-        # Initialize Pick State
-        if 'pick_state' not in st.session_state:
-            st.session_state.pick_state = 'A'
-        if 'picked_a' not in st.session_state: st.session_state.picked_a = None
-        if 'picked_b' not in st.session_state: st.session_state.picked_b = None
-        
-        # State: Track Map Center/Zoom to prevent reset on interaction
-        if 'map_center' not in st.session_state:
-            st.session_state.map_center = [20.5937, 78.9629]
-            st.session_state.map_zoom = 5
-
-        # Base Map Center Logic
-        # Priority: 1. Current User View (if changed), 2. Sites (if just loaded), 3. Default
-        # We update session_state.map_center ONLY if the user explicitly moved the map in the LAST interaction
-        # However, st_folium return data for bounds/center is available.
-        # BUT, standard Streamlit pattern: We set `location` in folium.Map.
-        # If we keep resetting it, it jumps.
-        # FIX: We only set `location` to "Default/Sites" ONCE (when data changes). 
-        # Otherwise, we use the `map_center` from session state, which we update from `map_out`.
-
-        if st.session_state.get('sites_just_loaded', False) and st.session_state.site_data is not None:
-            sites = st.session_state.site_data
-            st.session_state.map_center = [sites['Latitude'].mean(), sites['Longitude'].mean()]
-            st.session_state.map_zoom = 10
-            st.session_state.sites_just_loaded = False # Reset flag
-
-        # Configure Tiles
-        tiles = "OpenStreetMap"
-        attr = None
-        if map_style == "Satellite":
-            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-            attr = "Esri World Imagery"
-        elif map_style == "Terrain":
-            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
-            attr = "Esri World Topo"
-
-        m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.map_zoom, tiles=tiles, attr=attr)
-
-        # Draw Imported Sites (if any)
-        if st.session_state.site_data is not None:
-             # Add markers / Sectors
-            for _, row in st.session_state.site_data.iterrows():
-                # Check for Azimuth
-                has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
-                
-                if has_azimuth:
-                    az = float(row['Azimuth'])
-                    from folium.plugins import SemiCircle
-                    SemiCircle(
-                        location=[row['Latitude'], row['Longitude']],
-                        radius=sector_radius_km * 1000,
-                        start_angle=az - (beam_width / 2),
-                        stop_angle=az + (beam_width / 2),
-                        color="blue", fill=True, fill_color="blue", fill_opacity=0.3,
-                        popup=f"ID: {row['Site_ID']}",
-                        tooltip=f"{row['Site_ID']}"
-                    ).add_to(m)
-                else:
-                    folium.CircleMarker(
-                        location=[row['Latitude'], row['Longitude']],
-                        radius=5,
-                        popup=f"ID: {row['Site_ID']}",
-                        tooltip=str(row['Site_ID']),
-                        color="blue", fill=True, fill_color="blue"
-                    ).add_to(m)
-
-        # Draw Imported Sites (if any)
-        # ... (Existing Site Logic) ... Note: I'm not touching site logic here, just inserting result logic after it.
-        
-        # --- DRAW ANALYSIS RESULT (IF ANY) ---
-        # If we have results, draw the selected/latest one on this map too
-        if st.session_state.results:
-            # Determine which one to show. Defaults to latest or selected.
-            # Ideally we check what 'selected_id' is chosen below, but that variable isn't defined yet.
-            # Best is to show the LAST added result by default, or iterate all?
-            # Let's show the LAST result for immediate feedback.
-            latest_res = st.session_state.results[-1]["Raw"]
-            
-            # Line Color
-            color = "red" if latest_res["blocked"] else "green"
-            
-            # Path
-            path_coords = [(row['lat'], row['lon']) for _, row in latest_res['dataframe'].iterrows()]
-            folium.PolyLine(path_coords, color=color, weight=5, opacity=0.8).add_to(m)
-            
-            # Obstruction
-            if latest_res["blocked"] and latest_res["obstruction_location"]:
-                obs_lat, obs_lon = latest_res["obstruction_location"]
-                folium.Marker(
-                    [obs_lat, obs_lon], 
-                    popup=f"Max Obstruction: {latest_res['max_obstruction_height']:.2f}m",
-                    icon=folium.Icon(color="red", icon="exclamation-triangle", prefix="fa")
-                ).add_to(m)
-
-        # Draw Picked Points
-        if st.session_state.picked_a:
-            folium.Marker(st.session_state.picked_a, popup="Point A", icon=folium.Icon(color='green', icon='play')).add_to(m)
-        if st.session_state.picked_b:
-            folium.Marker(st.session_state.picked_b, popup="Point B", icon=folium.Icon(color='red', icon='stop')).add_to(m)
-            
-        # If we have a result, we might want to fit bounds to it
-        if st.session_state.results:
-            latest_res = st.session_state.results[-1]["Raw"]
-            m.fit_bounds([latest_res["start_point"][:2], latest_res["end_point"][:2]])
-
-        # Render Map & Capture Click
-        map_out = st_folium(m, width=None, height=500, key="main_map_interface")
-
-        # Update Persisted Center/Zoom
-        if map_out:
-            if "center" in map_out and map_out["center"]:
-               st.session_state.map_center = [map_out["center"]["lat"], map_out["center"]["lng"]]
-            if "zoom" in map_out:
-               st.session_state.map_zoom = map_out["zoom"]
-
-        # Handle Interaction
-        if pick_enabled and map_out and map_out.get("last_clicked"):
-            lat_c = map_out["last_clicked"]["lat"]
-            lng_c = map_out["last_clicked"]["lng"]
-            
-            if st.session_state.pick_state == 'A':
-                st.session_state.picked_a = [lat_c, lng_c]
-                st.session_state.pick_state = 'B'
-                st.toast(f"📍 Point A set")
-                st.rerun()
-            elif st.session_state.pick_state == 'B':
-                st.session_state.picked_b = [lat_c, lng_c]
-                st.session_state.pick_state = 'A'
-                st.toast(f"📍 Point B set")
-                st.rerun()
-        
-        # Reset Button for Picks
-        if st.button("Reset Selection Points"):
-            st.session_state.picked_a = None
-            st.session_state.picked_b = None
-            st.session_state.pick_state = 'A'
-            st.rerun()
-
-        st.divider()
         col1, col2 = st.columns(2)
         
         # Helper for parsing
