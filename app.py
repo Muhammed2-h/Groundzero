@@ -27,6 +27,10 @@ def main():
     st.sidebar.subheader("🌍 Import Site Data")
     site_file = st.sidebar.file_uploader("Upload Sites (CSV/KML/KMZ)", type=["csv", "kml", "kmz"])
     
+    # Beam Width for Sector Visualization
+    beam_width = st.sidebar.slider("Sector Beam Width (°)", min_value=10, max_value=360, value=65, step=5, help="Width of the antenna sector in degrees.")
+    sector_radius_km = st.sidebar.slider("Sector Radius (km)", min_value=0.1, max_value=10.0, value=1.0, step=0.1, help="Visual length of the sector wedge.")
+    
     if 'site_data' not in st.session_state:
         st.session_state.site_data = None
         
@@ -218,19 +222,51 @@ def main():
         
         m_sites = folium.Map(location=[avg_lat, avg_lon], zoom_start=10)
         
-        # Add markers
-        # Optimization: If > 1000 sites, maybe use FastMarkerCluster? 
-        # For now, simple iteration is fine for typical RF projects.
+        # Add markers / Sectors
         for _, row in sites.iterrows():
-            folium.CircleMarker(
-                location=[row['Latitude'], row['Longitude']],
-                radius=5,
-                popup=f"ID: {row['Site_ID']}<br>Height: {row['Tower_Height']}m",
-                tooltip=str(row['Site_ID']),
-                color="blue",
-                fill=True,
-                fill_color="blue"
-            ).add_to(m_sites)
+            # Check for Azimuth
+            has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
+            
+            if has_azimuth:
+                # Draw Sector (Wedge)
+                az = float(row['Azimuth'])
+                # SemiCircle plugin is decent, but Folium doesn't have a native 'Wedge' easily.
+                # However, Folium plugins.SemiCircle is standard. 
+                # Let's import it safely.
+                from folium.plugins import SemiCircle
+                
+                SemiCircle(
+                    location=[row['Latitude'], row['Longitude']],
+                    radius=sector_radius_km * 1000, # meters
+                    start_angle=az - (beam_width / 2),
+                    stop_angle=az + (beam_width / 2),
+                    color="blue",
+                    fill=True,
+                    fill_color="blue",
+                    fill_opacity=0.3,
+                    popup=f"ID: {row['Site_ID']}<br>Az: {az}°",
+                    tooltip=f"{row['Site_ID']} ({az}°)"
+                ).add_to(m_sites)
+                
+                # Small center dot
+                folium.CircleMarker(
+                    location=[row['Latitude'], row['Longitude']],
+                    radius=2,
+                    color="black",
+                    fill=True
+                ).add_to(m_sites)
+                
+            else:
+                # Standard Omni/Point
+                folium.CircleMarker(
+                    location=[row['Latitude'], row['Longitude']],
+                    radius=5,
+                    popup=f"ID: {row['Site_ID']}<br>Height: {row['Tower_Height']}m",
+                    tooltip=str(row['Site_ID']),
+                    color="blue",
+                    fill=True,
+                    fill_color="blue"
+                ).add_to(m_sites)
             
         st_folium(m_sites, width=None, height=400, key="site_map_preview")
         st.divider()

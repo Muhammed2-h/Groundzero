@@ -24,7 +24,8 @@ def parse_site_data(uploaded_file):
                 'id': ['site_id', 'siteid', 'id', 'name', 'site identifier'],
                 'lat': ['latitude', 'lat', 'y'],
                 'lon': ['longitude', 'long', 'lon', 'lng', 'x'],
-                'height': ['tower_height', 'height', 'tower height', 'antenna height', 'h']
+                'height': ['tower_height', 'height', 'tower height', 'antenna height', 'h'],
+                'azimuth': ['azimuth', 'bearing', 'dir', 'direction', 'az']
             }
             
             final_cols = {}
@@ -44,6 +45,7 @@ def parse_site_data(uploaded_file):
             out_df['Latitude'] = df[final_cols['lat']]
             out_df['Longitude'] = df[final_cols['lon']]
             out_df['Tower_Height'] = df[final_cols['height']] if final_cols['height'] else 10.0
+            out_df['Azimuth'] = df[final_cols['azimuth']] if final_cols['azimuth'] else None
             
             return out_df, None
 
