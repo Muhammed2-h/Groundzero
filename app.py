@@ -4,6 +4,7 @@ import folium
 from streamlit_folium import st_folium
 import plotly.graph_objects as go
 from terrain_utils import analyze_terrain_profile
+from file_parser import parse_site_data
 
 st.set_page_config(page_title="Line of Sight Terrain Analyzer", layout="wide")
 
@@ -21,7 +22,23 @@ def main():
     # Mode Selection
     mode = st.sidebar.radio("Input Mode", ["Manual", "Batch CSV"])
     
-    # Locking Logic State
+    # --- SITE DATA IMPORT ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🌍 Import Site Data")
+    site_file = st.sidebar.file_uploader("Upload Sites (CSV/KML/KMZ)", type=["csv", "kml", "kmz"])
+    
+    if 'site_data' not in st.session_state:
+        st.session_state.site_data = None
+        
+    if site_file:
+        df_sites, error = parse_site_data(site_file)
+        if df_sites is not None:
+            st.session_state.site_data = df_sites
+            st.sidebar.success(f"Loaded {len(df_sites)} sites!")
+        else:
+            st.sidebar.error(error)
+    
+    # ----------------------
     if 'locked_point' not in st.session_state:
         st.session_state.locked_point = None
     
@@ -50,21 +67,52 @@ def main():
             except ValueError:
                 return None, None
 
-        # Point A Inputs
-        with col1:
-            st.markdown("### Point A (Origin)")
-            a_input = st.text_input("Coordinates A (Lat, Lon)", value="0.0, 0.0", help="Format: Latitude, Longitude (e.g., 9.169856, 76.514526)")
-            h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a", help="Antenna Height Above Ground")
+        # --- INPUT LOGIC (TEXT vs SELECTBOX) ---
+        # Toggle if sites are available
+        use_site_list = False
+        if st.session_state.site_data is not None:
+            use_site_list = st.checkbox("Select from Imported Sites", value=True)
             
-        # Point B Inputs
-        with col2:
-            st.markdown("### Point B (Target)")
-            b_input = st.text_input("Coordinates B (Lat, Lon)", value="0.0, 0.0", help="Format: Latitude, Longitude (e.g., 9.169856, 76.514526)")
-            h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b", help="Antenna Height Above Ground")
+        a_lat, a_lon, b_lat, b_lon = None, None, None, None
+        
+        if use_site_list:
+            sites = st.session_state.site_data
+            site_options = sites['Site_ID'].tolist()
+            
+            with col1:
+                st.markdown("### Point A (Origin)")
+                selected_a = st.selectbox("Select Site A", site_options, key="sel_a")
+                row_a = sites[sites['Site_ID'] == selected_a].iloc[0]
+                a_lat, a_lon = row_a['Latitude'], row_a['Longitude']
+                default_h_a = float(row_a['Tower_Height'])
+                h_a = st.number_input("Tower Height A (m)", value=default_h_a, step=1.0, min_value=0.0, max_value=500.0, key="h_a")
+                st.caption(f"📍 {a_lat:.5f}, {a_lon:.5f}")
+                
+            with col2:
+                st.markdown("### Point B (Target)")
+                selected_b = st.selectbox("Select Site B", site_options, index=min(1, len(site_options)-1), key="sel_b")
+                row_b = sites[sites['Site_ID'] == selected_b].iloc[0]
+                b_lat, b_lon = row_b['Latitude'], row_b['Longitude']
+                default_h_b = float(row_b['Tower_Height'])
+                h_b = st.number_input("Tower Height B (m)", value=default_h_b, step=1.0, min_value=0.0, max_value=500.0, key="h_b")
+                st.caption(f"📍 {b_lat:.5f}, {b_lon:.5f}")
+                
+        else:
+            # Point A Inputs (Manual)
+            with col1:
+                st.markdown("### Point A (Origin)")
+                a_input = st.text_input("Coordinates A (Lat, Lon)", value="0.0, 0.0", help="Format: Latitude, Longitude")
+                h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a")
+                
+            # Point B Inputs (Manual)
+            with col2:
+                st.markdown("### Point B (Target)")
+                b_input = st.text_input("Coordinates B (Lat, Lon)", value="0.0, 0.0", help="Format: Latitude, Longitude")
+                h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b")
 
-        # Parse Inputs immediately so variables exist for later logic
-        a_lat, a_lon = parse_coords(a_input)
-        b_lat, b_lon = parse_coords(b_input)
+            # Parse Inputs
+            a_lat, a_lon = parse_coords(a_input)
+            b_lat, b_lon = parse_coords(b_input)
 
         # Logic for "Locking" Feature in Manual Mode
         target_df = None
@@ -134,7 +182,6 @@ def main():
                                 # Let's assume targets are 10m for now unless we wanna over-engineer.
                                 h_target = 10.0
                                 
-                                if lock_choice == "Point A":
                                     # Fixed A (height h_a), Varying B (height 10)
                                     res = analyze_terrain_profile(a_lat, a_lon, t_lat, t_lon, h_start_agl=h_a, h_end_agl=h_target)
                                 else:

@@ -7,3 +7,5 @@ plotly
 geopy
 shapely
 numpy
+fastkml
+lxml
