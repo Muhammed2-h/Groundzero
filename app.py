@@ -62,53 +62,91 @@ def main():
         # Locking Controls
         use_locking = st.checkbox("Enable Point Locking (One-to-Many)", help="Fix one point and analyze multiple targets.")
         
-        # --- MAP COORDINATE PICKER ---
-        with st.expander("📍 Pick Coordinates from Map"):
-            st.caption("Click on the map to select points. First click sets Point A, second click sets Point B.")
-            
-            # State for Picker
-            if 'pick_state' not in st.session_state:
-                st.session_state.pick_state = 'A' # Expecting A
-            if 'picked_a' not in st.session_state: st.session_state.picked_a = None
-            if 'picked_b' not in st.session_state: st.session_state.picked_b = None
-            
-            # Default location (India center roughly) or last picked
-            start_loc = [20.5937, 78.9629]
-            if st.session_state.picked_a:
-                start_loc = st.session_state.picked_a
-                
-            m_pick = folium.Map(location=start_loc, zoom_start=5)
-            
-            # Show picked points
-            if st.session_state.picked_a:
-                folium.Marker(st.session_state.picked_a, popup="Point A", icon=folium.Icon(color='green', icon='play')).add_to(m_pick)
-            if st.session_state.picked_b:
-                folium.Marker(st.session_state.picked_b, popup="Point B", icon=folium.Icon(color='red', icon='stop')).add_to(m_pick)
+        # --- MAP VISUALIZATION & PICKER ---
+        st.subheader("🌍 Map Interface")
+        st.caption("Click on the map to set points (Green = Point A, Red = Point B).")
+        
+        # Initialize Pick State
+        if 'pick_state' not in st.session_state:
+            st.session_state.pick_state = 'A'
+        if 'picked_a' not in st.session_state: st.session_state.picked_a = None
+        if 'picked_b' not in st.session_state: st.session_state.picked_b = None
 
-            pick_data = st_folium(m_pick, height=300, width=None, key="coord_picker")
+        # Base Map Center
+        start_loc = [20.5937, 78.9629] # Default India
+        zoom = 5
+        
+        # If sites exist, center on them
+        if st.session_state.site_data is not None:
+            sites = st.session_state.site_data
+            start_loc = [sites['Latitude'].mean(), sites['Longitude'].mean()]
+            zoom = 10
+        elif st.session_state.picked_a:
+            start_loc = st.session_state.picked_a
             
-            # Handle Click
-            if pick_data and pick_data.get("last_clicked"):
-                lat_c = pick_data["last_clicked"]["lat"]
-                lng_c = pick_data["last_clicked"]["lng"]
+        m = folium.Map(location=start_loc, zoom_start=zoom)
+
+        # Draw Imported Sites (if any)
+        if st.session_state.site_data is not None:
+             # Add markers / Sectors
+            for _, row in st.session_state.site_data.iterrows():
+                # Check for Azimuth
+                has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
                 
-                if st.session_state.pick_state == 'A':
-                    st.session_state.picked_a = [lat_c, lng_c]
-                    st.session_state.pick_state = 'B'
-                    st.toast(f"Point A set to {lat_c:.4f}, {lng_c:.4f}")
-                    st.rerun()
-                elif st.session_state.pick_state == 'B':
-                    st.session_state.picked_b = [lat_c, lng_c]
-                    st.session_state.pick_state = 'A' # Cycle back
-                    st.toast(f"Point B set to {lat_c:.4f}, {lng_c:.4f}")
-                    st.rerun()
-             
-            if st.button("Reset Picks"):
-                st.session_state.picked_a = None
-                st.session_state.picked_b = None
-                st.session_state.pick_state = 'A'
+                if has_azimuth:
+                    az = float(row['Azimuth'])
+                    from folium.plugins import SemiCircle
+                    SemiCircle(
+                        location=[row['Latitude'], row['Longitude']],
+                        radius=sector_radius_km * 1000,
+                        start_angle=az - (beam_width / 2),
+                        stop_angle=az + (beam_width / 2),
+                        color="blue", fill=True, fill_color="blue", fill_opacity=0.3,
+                        popup=f"ID: {row['Site_ID']}",
+                        tooltip=f"{row['Site_ID']}"
+                    ).add_to(m)
+                else:
+                    folium.CircleMarker(
+                        location=[row['Latitude'], row['Longitude']],
+                        radius=5,
+                        popup=f"ID: {row['Site_ID']}",
+                        tooltip=str(row['Site_ID']),
+                        color="blue", fill=True, fill_color="blue"
+                    ).add_to(m)
+
+        # Draw Picked Points
+        if st.session_state.picked_a:
+            folium.Marker(st.session_state.picked_a, popup="Point A", icon=folium.Icon(color='green', icon='play')).add_to(m)
+        if st.session_state.picked_b:
+            folium.Marker(st.session_state.picked_b, popup="Point B", icon=folium.Icon(color='red', icon='stop')).add_to(m)
+
+        # Render Map & Capture Click
+        map_out = st_folium(m, width=None, height=500, key="main_map_interface")
+
+        # Handle Interaction
+        if map_out and map_out.get("last_clicked"):
+            lat_c = map_out["last_clicked"]["lat"]
+            lng_c = map_out["last_clicked"]["lng"]
+            
+            if st.session_state.pick_state == 'A':
+                st.session_state.picked_a = [lat_c, lng_c]
+                st.session_state.pick_state = 'B'
+                st.toast(f"📍 Point A set")
                 st.rerun()
+            elif st.session_state.pick_state == 'B':
+                st.session_state.picked_b = [lat_c, lng_c]
+                st.session_state.pick_state = 'A'
+                st.toast(f"📍 Point B set")
+                st.rerun()
+        
+        # Reset Button for Picks
+        if st.button("Reset Selection Points"):
+            st.session_state.picked_a = None
+            st.session_state.picked_b = None
+            st.session_state.pick_state = 'A'
+            st.rerun()
 
+        st.divider()
         col1, col2 = st.columns(2)
         
         # Helper for parsing
@@ -265,68 +303,6 @@ def main():
                                     })
                                 
                                 progress_bar.progress((idx + 1) / len(target_df))
-
-    # ----------------------
-    # SITE MAP VISUALIZATION
-    # ----------------------
-    if st.session_state.site_data is not None:
-        st.subheader("🌍 Imported Sites Overview")
-        sites = st.session_state.site_data
-        
-        # Calculate center
-        avg_lat = sites['Latitude'].mean()
-        avg_lon = sites['Longitude'].mean()
-        
-        m_sites = folium.Map(location=[avg_lat, avg_lon], zoom_start=10)
-        
-        # Add markers / Sectors
-        for _, row in sites.iterrows():
-            # Check for Azimuth
-            has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
-            
-            if has_azimuth:
-                # Draw Sector (Wedge)
-                az = float(row['Azimuth'])
-                # SemiCircle plugin is decent, but Folium doesn't have a native 'Wedge' easily.
-                # However, Folium plugins.SemiCircle is standard. 
-                # Let's import it safely.
-                from folium.plugins import SemiCircle
-                
-                SemiCircle(
-                    location=[row['Latitude'], row['Longitude']],
-                    radius=sector_radius_km * 1000, # meters
-                    start_angle=az - (beam_width / 2),
-                    stop_angle=az + (beam_width / 2),
-                    color="blue",
-                    fill=True,
-                    fill_color="blue",
-                    fill_opacity=0.3,
-                    popup=f"ID: {row['Site_ID']}<br>Az: {az}°",
-                    tooltip=f"{row['Site_ID']} ({az}°)"
-                ).add_to(m_sites)
-                
-                # Small center dot
-                folium.CircleMarker(
-                    location=[row['Latitude'], row['Longitude']],
-                    radius=2,
-                    color="black",
-                    fill=True
-                ).add_to(m_sites)
-                
-            else:
-                # Standard Omni/Point
-                folium.CircleMarker(
-                    location=[row['Latitude'], row['Longitude']],
-                    radius=5,
-                    popup=f"ID: {row['Site_ID']}<br>Height: {row['Tower_Height']}m",
-                    tooltip=str(row['Site_ID']),
-                    color="blue",
-                    fill=True,
-                    fill_color="blue"
-                ).add_to(m_sites)
-            
-        st_folium(m_sites, width=None, height=400, key="site_map_preview")
-        st.divider()
 
     # ----------------------
     # BATCH CSV MODE
