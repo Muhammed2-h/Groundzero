@@ -153,42 +153,33 @@ def main():
         if lat_v and lon_v:
             st.session_state[marker_key] = [lat_v, lon_v]
 
-    sync_input_to_marker("coords_a", "picked_a")
-    sync_input_to_marker("coords_b", "picked_b")
-
-    # Draw Picked Points
-    if st.session_state.picked_a:
-        folium.Marker(st.session_state.picked_a, popup="Point A", icon=folium.Icon(color='green', icon='play')).add_to(m)
-    if st.session_state.picked_b:
-        folium.Marker(st.session_state.picked_b, popup="Point B", icon=folium.Icon(color='red', icon='stop')).add_to(m)
+    # Draw Picked Target
+    if st.session_state.coords_target:
+        lat_t, lon_t = parse_coords(st.session_state.coords_target)
+        if lat_t and lon_t:
+             folium.Marker(
+                 [lat_t, lon_t], 
+                 popup="Target Location", 
+                 icon=folium.Icon(color='red', icon='crosshairs', prefix='fa')
+             ).add_to(m)
         
     # Draw Analysis Results (if any)
     if st.session_state.results:
-        # Determine which one to show. Show LAST result by default.
-        latest_res = st.session_state.results[-1]["Raw"]
-        
-        # Line Color
-        color = "red" if latest_res["blocked"] else "green"
-        
-        # Path
-        path_coords = [(row['lat'], row['lon']) for _, row in latest_res['dataframe'].iterrows()]
-        folium.PolyLine(path_coords, color=color, weight=5, opacity=0.8).add_to(m)
-        
-        # Obstruction
-        if latest_res["blocked"] and latest_res["obstruction_location"]:
-            obs_lat, obs_lon = latest_res["obstruction_location"]
-            folium.Marker(
-                [obs_lat, obs_lon], 
-                popup=f"Max Obstruction: {latest_res['max_obstruction_height']:.2f}m",
-                icon=folium.Icon(color="red", icon="exclamation-triangle", prefix="fa")
-            ).add_to(m)
+        # Draw ALL lines, not just one
+        for res in st.session_state.results:
+            raw = res["Raw"]
+            color = "red" if raw["blocked"] else "green"
             
-        # Fit bounds if just calculated (optional, maybe distracting if picking multiple?)
-        # Let's keep manual pan/zoom for now.
+            # Path
+            path_coords = [(row['lat'], row['lon']) for _, row in raw['dataframe'].iterrows()]
+            folium.PolyLine(path_coords, color=color, weight=3, opacity=0.6).add_to(m)
+            
+            if raw["blocked"] and raw["obstruction_location"]:
+                 obs_lat, obs_lon = raw["obstruction_location"]
+                 folium.CircleMarker([obs_lat, obs_lon], radius=2, color='red').add_to(m)
 
     # Render Map & Capture Click
     # OPTIMIZATION: We ONLY request 'last_clicked' to prevent the script from rerunning on every Pan/Zoom event.
-    # This fixes the "Zoom Stuttering" issue, but means the map state (zoom/center) is not constantly synced to the backend.
     map_out = st_folium(
         m, 
         width=None, 
@@ -221,184 +212,163 @@ def main():
         st.session_state.force_map_update = False
 
     # Handle Interaction (Picking)
+    # Simplified: Just picking the global target
     if pick_enabled and map_out and map_out.get("last_clicked"):
         lat_c = map_out["last_clicked"]["lat"]
         lng_c = map_out["last_clicked"]["lng"]
         
-        if st.session_state.pick_state == 'A':
-            st.session_state.picked_a = [lat_c, lng_c]
-            st.session_state.pick_state = 'B'
-            st.toast(f"📍 Point A set")
-            st.session_state.force_map_update = True # Optional: Don't let map move if we just clicked? Actually picking doesn't move map usually.
-            st.rerun()
-        elif st.session_state.pick_state == 'B':
-            st.session_state.picked_b = [lat_c, lng_c]
-            st.session_state.pick_state = 'A'
-            st.toast(f"📍 Point B set")
-            st.session_state.force_map_update = True
-            st.rerun()
+        st.session_state.picked_a = [lat_c, lng_c] # reuse this temp state
+        st.toast(f"📍 Target set")
+        st.session_state.force_map_update = True
+        st.rerun()
     
     # Reset Button for Picks
-    if st.button("Reset Selection Points"):
+    if st.button("Reset Selection"):
+        st.session_state.coords_target = ""
         st.session_state.picked_a = None
-        st.session_state.picked_b = None
-        st.session_state.pick_state = 'A'
         st.rerun()
 
     st.divider()
 
     # ----------------------
-    # MANUAL MODE LOGIC (Now Default)
+    # ANALYSIS CONFIGURATION
     # ----------------------
-    st.subheader("📍 Coordinate Input")
+    st.subheader("📍 Target Location")
     
-    # Locking Controls
-    use_locking = st.checkbox("Enable Point Locking (One-to-Many)", help="Fix one point and analyze multiple targets.")
+    col1, col2 = st.columns([2, 1])
     
-    col1, col2 = st.columns(2)
-    
-    # --- INPUT LOGIC (MANUAL + MAP PICK) ---
-    a_lat, a_lon, b_lat, b_lon = None, None, None, None
+    # Sync Logic for Single Point
+    # Reusing the global parse_coords and sync_input_to_marker
+    if 'coords_target' not in st.session_state: st.session_state.coords_target = ""
+    sync_input_to_marker("coords_target", "picked_a") # Reusing 'picked_a' state for simplified map logic
 
-    # Point A Inputs (Manual)
     with col1:
-        c_a_h, c_a_z = st.columns([3, 1])
-        with c_a_h: st.markdown("### Point A (Origin)")
-        with c_a_z:
-            if st.button("⌖", key="zoom_a", help="Center map on Point A"):
-                # Read current input from state
-                cur_val = st.session_state.get("coords_a", "")
-                lat_z, lon_z = parse_coords(cur_val)
-                if lat_z and lon_z:
-                    st.session_state.map_center = [lat_z, lon_z]
-                    st.session_state.map_zoom = 15 # Closer Zoom
-                    st.session_state.pick_state = 'A' # Optional: set expectation
-                    st.session_state.force_map_update = True # Protect this update
-                    st.rerun()
-        
-        # Check for map picks (Update State directly)
+         # Check for map picks (Update State directly)
         if st.session_state.get('picked_a'):
-            st.session_state.coords_a = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
-            # Clear pick to prevent overwrite on next type
+            st.session_state.coords_target = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
             st.session_state.picked_a = None 
             
-        a_input = st.text_input("Coordinates A (Lat, Lon)", key="coords_a", help="Format: Latitude, Longitude")
-        h_a = st.number_input("Tower Height A (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_a")
+        t_input = st.text_input("Coordinates (Lat, Lon)", key="coords_target", help="Enter the location you want to analyze coverage for.")
         
-    # Point B Inputs (Manual)
     with col2:
-        c_b_h, c_b_z = st.columns([3, 1])
-        with c_b_h: st.markdown("### Point B (Target)")
-        with c_b_z:
-            if st.button("⌖", key="zoom_b", help="Center map on Point B"):
-                 cur_val = st.session_state.get("coords_b", "")
-                 lat_z, lon_z = parse_coords(cur_val)
-                 if lat_z and lon_z:
-                    st.session_state.map_center = [lat_z, lon_z]
-                    st.session_state.map_zoom = 15
-                    st.session_state.pick_state = 'B'
-                    st.session_state.force_map_update = True # Protect
-                    st.rerun()
+        if st.button("⌖", key="zoom_target", help="Center map on Target"):
+             cur_val = st.session_state.get("coords_target", "")
+             lat_z, lon_z = parse_coords(cur_val)
+             if lat_z and lon_z:
+                st.session_state.map_center = [lat_z, lon_z]
+                st.session_state.map_zoom = 15
+                st.session_state.pick_state = 'A'
+                st.session_state.force_map_update = True
+                st.rerun()
 
-        # Check for map picks
-        if st.session_state.get('picked_b'):
-            st.session_state.coords_b = f"{st.session_state.picked_b[0]:.6f}, {st.session_state.picked_b[1]:.6f}"
-            st.session_state.picked_b = None
-
-        b_input = st.text_input("Coordinates B (Lat, Lon)", key="coords_b", help="Format: Latitude, Longitude")
-        h_b = st.number_input("Tower Height B (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, key="h_b")
-
-    # Parse Inputs
-    a_lat, a_lon = parse_coords(a_input)
-    b_lat, b_lon = parse_coords(b_input)
-
-    # Logic for "Locking" Feature in Manual Mode
-    target_df = None
+    h_target = st.number_input("Target Height (m)", value=10.0, step=1.0, min_value=0.0, max_value=500.0, help="Height of the receiver/user.")
     
-    if use_locking:
-        lock_choice = st.radio("Lock which point?", ["Point A", "Point B"], horizontal=True)
-        
-        st.info(f"🔒 {lock_choice} is locked. Upload a CSV for the other points.")
-        
-        uploaded_file = st.file_uploader("Upload Targets CSV", type=["csv"])
-        if uploaded_file:
-            target_df = pd.read_csv(uploaded_file)
-            st.write("Preview of targets:", target_df.head())
+    st.divider()
     
-    # Action Button
-    if st.button("Run Analysis", type="primary"):
-        # Validation
-        if a_lat is None or a_lon is None:
-            st.error("❌ Invalid coordinates for Point A. Please use format 'lat, lon' (e.g., 9.123, 76.456)")
-            st.stop()
-        if b_lat is None or b_lon is None:
-            st.error("❌ Invalid coordinates for Point B. Please use format 'lat, lon' (e.g., 9.123, 76.456)")
-            st.stop()
+    # Analysis Settings
+    c_res, c_rad = st.columns(2)
+    with c_res:
+        max_results = st.slider("Max Results to View", min_value=1, max_value=50, value=5)
+    with c_rad:
+        search_radius_km = st.slider("Search Radius (km)", min_value=1.0, max_value=100.0, value=10.0)
 
-        st.session_state.results = [] # Clear previous
-        with st.spinner("Analyzing terrain..."):
+    # Action
+    if st.button("Find Best Sites & Analyze Terrain", type="primary"):
+        target_lat, target_lon = parse_coords(t_input)
+        
+        if not target_lat or not target_lon:
+            st.error("❌ Please set a valid Target Location.")
+            st.stop()
             
-            if not use_locking:
-                res = analyze_terrain_profile(a_lat, a_lon, b_lat, b_lon, h_start_agl=h_a, h_end_agl=h_b)
+        if st.session_state.site_data is None:
+            st.error("❌ No Site Data (CSV/KML) imported! Please upload sites in the sidebar to analyze.")
+            st.stop()
+            
+        st.session_state.results = [] # Clear previous
+        
+        with st.spinner("Finding best candidates..."):
+            sites = st.session_state.site_data.copy()
+            
+            # 1. Calculate Distances
+            from geopy.distance import geodesic
+            
+            def get_dist(row):
+                return geodesic((target_lat, target_lon), (row['Latitude'], row['Longitude'])).kilometers
+                
+            sites['Distance_km'] = sites.apply(get_dist, axis=1)
+            
+            # Filter by Radius
+            candidates = sites[sites['Distance_km'] <= search_radius_km].copy()
+            
+            if candidates.empty:
+                st.warning(f"No sites found within {search_radius_km}km radius.")
+                st.stop()
+                
+            # 2. Azimuth Check (if valid)
+            import math
+            
+            def calculate_bearing(lat1, lon1, lat2, lon2):
+                # Bearing from Site (lat1, lon1) to Target (lat2, lon2)
+                d_lon = lon2 - lon1
+                y = math.sin(math.radians(d_lon)) * math.cos(math.radians(lat2))
+                x = math.cos(math.radians(lat1)) * math.sin(math.radians(lat2)) - \
+                    math.sin(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.cos(math.radians(d_lon))
+                brng = math.degrees(math.atan2(y, x))
+                return (brng + 360) % 360
+
+            valid_candidates = []
+            
+            # Iterate and Score
+            for idx, row in candidates.iterrows():
+                # Check Azimuth
+                is_facing = True
+                bearing_to_target = calculate_bearing(row['Latitude'], row['Longitude'], target_lat, target_lon)
+                
+                if 'Azimuth' in row and pd.notnull(row['Azimuth']):
+                    site_az = float(row['Azimuth'])
+                    # Difference
+                    diff = abs(site_az - bearing_to_target)
+                    if diff > 180: diff = 360 - diff
+                    
+                    if diff > (beam_width / 2):
+                        is_facing = False
+                
+                if is_facing:
+                    valid_candidates.append(row)
+            
+            if not valid_candidates:
+                st.warning("No sites found facing the target location (check Sector Beam Width settings).")
+                st.stop()
+                
+            # Create DF from valid
+            df_valid = pd.DataFrame(valid_candidates)
+            df_valid = df_valid.sort_values('Distance_km').head(max_results)
+            
+            # 3. Run Analysis on Top N
+            progress_bar = st.progress(0)
+            for i, (idx, row) in enumerate(df_valid.iterrows()):
+                
+                site_h = float(row.get('Tower_Height', 30.0))
+                
+                res = analyze_terrain_profile(
+                    row['Latitude'], row['Longitude'],
+                    target_lat, target_lon,
+                    h_start_agl=site_h,
+                    h_end_agl=h_target
+                )
+                
                 if res.get("status") == "Success":
-                    st.session_state.results.append({
-                        "ID": "Manual_1",
-                        "Path Name": "Manual Path",
-                        "Point A": f"{a_lat},{a_lon} ({h_a}m)",
-                        "Point B": f"{b_lat},{b_lon} ({h_b}m)",
+                     st.session_state.results.append({
+                        "ID": f"{row['Site_ID']}_{idx}",
+                        "Path Name": f"{row['Site_ID']} -> Target",
+                        "Site ID": row['Site_ID'],
                         "Distance (km)": res["dataframe"]["distance_km"].max(),
                         "Status": "BLOCKED" if res["blocked"] else "CLEAR",
                         "Max Obstruction (m)": res["max_obstruction_height"],
                         "Raw": res
                     })
-                else:
-                    st.error(res.get("message"))
-
-            # Case 2: One-to-Many (Locked)
-            else:
-                if target_df is None:
-                    st.error("Please upload a CSV file definition for the target points.")
-                else:
-                    # We need to identify lat/lon columns loosely
-                    cols = [c.lower() for c in target_df.columns]
-                    
-                    # Simple heuristics to find columns
-                    lat_col = next((c for c in target_df.columns if "lat" in c.lower()), None)
-                    lon_col = next((c for c in target_df.columns if "lon" in c.lower() or "lng" in c.lower()), None)
-                    
-                    if not lat_col or not lon_col:
-                        st.error(f"Could not automatically detect 'lat' and 'lon' columns in CSV. Found: {target_df.columns.tolist()}")
-                    else:
-                        # Iterate
-                        progress_bar = st.progress(0)
-                        for idx, row in target_df.iterrows():
-                            t_lat = row[lat_col]
-                            t_lon = row[lon_col]
-                            
-                            # Use locked height vs default 10m for targets (unless CSV has height logic, but for MVP we use default 10m for targets)
-                            # Actually, it would be smart to look for "height" column in CSV? 
-                            # Let's assume targets are 10m for now unless we wanna over-engineer.
-                            h_target = 10.0
-                            
-                            if lock_choice == "Point A":
-                                # Fixed A (height h_a), Varying B (height 10)
-                                res = analyze_terrain_profile(a_lat, a_lon, t_lat, t_lon, h_start_agl=h_a, h_end_agl=h_target)
-                            else:
-                                # Varying A, Fixed B
-                                res = analyze_terrain_profile(t_lat, t_lon, b_lat, b_lon, h_start_agl=h_target, h_end_agl=h_b)
-                            
-                            if res.get("status") == "Success":
-                                st.session_state.results.append({
-                                    "ID": f"Target_{idx}",
-                                    "Point A": f"{a_lat},{a_lon}" if lock_choice == "Point A" else f"{t_lat},{t_lon}",
-                                    "Point B": f"{t_lat},{t_lon}" if lock_choice == "Point A" else f"{b_lat},{b_lon}",
-                                    "Distance (km)": res["dataframe"]["distance_km"].max(),
-                                    "Status": "BLOCKED" if res["blocked"] else "CLEAR",
-                                    "Max Obstruction (m)": res["max_obstruction_height"],
-                                    "Raw": res
-                                })
-                            
-                            progress_bar.progress((idx + 1) / len(target_df))
+                
+                progress_bar.progress((i + 1) / len(df_valid))
 
     # ----------------------
     # VISUALIZATION & OUTPUT
