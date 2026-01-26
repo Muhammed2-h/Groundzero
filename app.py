@@ -495,20 +495,20 @@ def main():
         
         fig = go.Figure()
         
-        # Terrain fill (Curved Earth)
+        # Terrain fill (Flat Earth Model)
         fig.add_trace(go.Scatter(
             x=df_chart['distance_km'], 
-            y=df_chart['elevation_curved'],
+            y=df_chart['elevation'],
             fill='tozeroy',
             mode='lines',
-            name='Terrain (with Earth Curvature)',
+            name='Terrain',
             line=dict(color='gray')
         ))
         
-        # LoS Line (Straight)
+        # LoS Line (Curved Drop)
         fig.add_trace(go.Scatter(
             x=df_chart['distance_km'],
-            y=df_chart['los_elevation_flat'],
+            y=df_chart['los_elevation'],
             mode='lines',
             name='Line of Sight',
             line=dict(color=color, dash='dash')
@@ -519,7 +519,7 @@ def main():
              obstruction_points = df_chart[df_chart['is_obstructing']]
              fig.add_trace(go.Scatter(
                 x=obstruction_points['distance_km'],
-                y=obstruction_points['elevation_curved'],
+                y=obstruction_points['elevation'],
                 mode='markers',
                 name='Obstructions',
                 marker=dict(color='red', size=5)

@@ -113,16 +113,21 @@ def analyze_terrain_profile(lat1: float, lon1: float, lat2: float, lon2: float,
          return {"status": "Error", "message": "Start and End points are same."}
     
     # Adaptive Sampling Logic
+    # UPDATED: Higher resolution to resolve "jagged" charts
     if force_interval:
         interval = force_interval
-    elif total_distance_m < 10000:
-        interval = 50
-    elif total_distance_m < 50000:
-        interval = 100
+    elif total_distance_m < 5000:
+        interval = 25 # Very fine for short distances
+    elif total_distance_m < 20000:
+        interval = 50 
     else:
-        interval = 250
+        interval = 100 # Cap at 100m for long distances
         
     num_points = int(total_distance_m / interval) + 2
+    
+    # Ensure minimum point count for smooth rendering
+    if num_points < 50: num_points = 50
+    if num_points > 500: num_points = 500 # Cap for API checks
     
     lats = np.linspace(lat1, lat2, num_points)
     lons = np.linspace(lon1, lon2, num_points)
