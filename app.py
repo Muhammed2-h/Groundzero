@@ -172,7 +172,9 @@ def main():
     # Draw Analysis Results (if any)
     if st.session_state.results:
         # Draw ALL lines, not just one
-        for res in st.session_state.results:
+        from folium import DivIcon
+        
+        for i, res in enumerate(st.session_state.results):
             raw = res["Raw"]
             color = "red" if raw["blocked"] else "green"
             
@@ -180,6 +182,19 @@ def main():
             path_coords = [(row['lat'], row['lon']) for _, row in raw['dataframe'].iterrows()]
             folium.PolyLine(path_coords, color=color, weight=3, opacity=0.6).add_to(m)
             
+            # Numbered Label at Source (Site)
+            # Use the first point of the path (Site Location)
+            start_lat, start_lon = path_coords[0]
+            
+            folium.Marker(
+                [start_lat, start_lon],
+                icon=DivIcon(
+                    icon_size=(150,36),
+                    icon_anchor=(0,0),
+                    html=f'<div style="font-size: 12pt; font-weight: bold; color: {color}; background: white; padding: 2px; border: 1px solid {color}; border-radius: 4px;">#{i+1}</div>'
+                )
+            ).add_to(m)
+
             if raw["blocked"] and raw["obstruction_location"]:
                  obs_lat, obs_lon = raw["obstruction_location"]
                  folium.CircleMarker([obs_lat, obs_lon], radius=2, color='red').add_to(m)
