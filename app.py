@@ -203,6 +203,36 @@ def main():
                                 progress_bar.progress((idx + 1) / len(target_df))
 
     # ----------------------
+    # SITE MAP VISUALIZATION
+    # ----------------------
+    if st.session_state.site_data is not None:
+        st.subheader("🌍 Imported Sites Overview")
+        sites = st.session_state.site_data
+        
+        # Calculate center
+        avg_lat = sites['Latitude'].mean()
+        avg_lon = sites['Longitude'].mean()
+        
+        m_sites = folium.Map(location=[avg_lat, avg_lon], zoom_start=10)
+        
+        # Add markers
+        # Optimization: If > 1000 sites, maybe use FastMarkerCluster? 
+        # For now, simple iteration is fine for typical RF projects.
+        for _, row in sites.iterrows():
+            folium.CircleMarker(
+                location=[row['Latitude'], row['Longitude']],
+                radius=5,
+                popup=f"ID: {row['Site_ID']}<br>Height: {row['Tower_Height']}m",
+                tooltip=str(row['Site_ID']),
+                color="blue",
+                fill=True,
+                fill_color="blue"
+            ).add_to(m_sites)
+            
+        st_folium(m_sites, width=None, height=400, key="site_map_preview")
+        st.divider()
+
+    # ----------------------
     # BATCH CSV MODE
     # ----------------------
     elif mode == "Batch CSV":
