@@ -210,6 +210,41 @@ def main():
         attr = "Esri World Topo"
 
     m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.map_zoom, tiles=tiles, attr=attr)
+    
+    # === AUTO-FIT BOUNDS TO DATA ===
+    # Collect all points to fit
+    all_points = []
+    
+    # Add site locations
+    if st.session_state.site_data is not None:
+        for _, row in st.session_state.site_data.iterrows():
+            all_points.append([row['Latitude'], row['Longitude']])
+    
+    # Add target location
+    if st.session_state.coords_target:
+        lat_t, lon_t = parse_coords(st.session_state.coords_target)
+        if lat_t and lon_t:
+            all_points.append([lat_t, lon_t])
+    
+    # Add analysis result paths
+    if st.session_state.results:
+        for res in st.session_state.results:
+            raw = res.get("Raw", {})
+            df = raw.get("dataframe")
+            if df is not None and not df.empty:
+                # Add start and end of path
+                all_points.append([df['lat'].iloc[0], df['lon'].iloc[0]])
+                all_points.append([df['lat'].iloc[-1], df['lon'].iloc[-1]])
+    
+    # Fit bounds if we have points and this is a fresh load
+    if all_points and st.session_state.get('force_map_update', False):
+        # Calculate bounds
+        lats = [p[0] for p in all_points]
+        lons = [p[1] for p in all_points]
+        sw = [min(lats) - 0.01, min(lons) - 0.01]  # Southwest corner with padding
+        ne = [max(lats) + 0.01, max(lons) + 0.01]  # Northeast corner with padding
+        m.fit_bounds([sw, ne])
+        st.session_state.force_map_update = False  # Reset flag
 
     # Draw Imported Sites (if any)
     if st.session_state.site_data is not None:
@@ -549,6 +584,10 @@ def main():
                     })
                 
                 progress_bar.progress((i + 1) / len(df_valid))
+            
+            # Trigger map to auto-fit to results
+            st.session_state.force_map_update = True
+            st.rerun()
 
     # ----------------------
     # VISUALIZATION & OUTPUT
