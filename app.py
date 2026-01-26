@@ -250,7 +250,7 @@ def main():
             st.session_state.coords_target = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
             st.session_state.picked_a = None 
             
-        t_input = st.text_input("Coordinates (Lat, Lon)", key="coords_target", help="Enter the location you want to analyze coverage for.")
+        t_input = st.text_input("Coordinates (Lat, Lon)", key="coords_target", help="Format: Decimal Degrees (WGS84 / EPSG:4326). Example: 25.2769, 55.2962")
         
     with col2:
         if st.button("⌖", key="zoom_target", help="Center map on Target"):
