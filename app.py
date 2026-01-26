@@ -168,64 +168,49 @@ def main():
                  obs_lat, obs_lon = raw["obstruction_location"]
                  folium.CircleMarker([obs_lat, obs_lon], radius=2, color='red').add_to(m)
 
-    # Render Map & Capture Click
-    # STUTTER FIX: We use 'last_clicked' but we need to ensure we don't accidentally
-    # trigger meaningful updates on PANS. st_folium handles this by only updating 'last_clicked' on clicks.
+    # Draw Control (For Intentional Pin Dropping)
+    from folium.plugins import Draw
+    
+    draw = Draw(
+        draw_options={
+            'polyline': False,
+            'polygon': False,
+            'circle': False,
+            'marker': True,
+            'circlemarker': False,
+            'rectangle': False,
+        },
+        edit_options={'edit': False, 'remove': False}, # Disable edit interface
+        position='topleft'
+    )
+    draw.add_to(m)
+
+    # Render Map & Capture Interaction
+    # We use 'last_active_drawing' to capture when a user drops a marker via the toolbar.
+    # This solves the "Accidental Touch" issue because it requires selecting the tool first.
     map_out = st_folium(
         m, 
         width=None, 
-        height=450, # Slightly reduced height for mobile friendliness
+        height=450, 
         key="main_map_interface",
-        returned_objects=["last_clicked"]
+        returned_objects=["last_active_drawing"]
     )
 
     # Update Persisted Center/Zoom
-    # Logic: Sync Frontend State -> Backend State
-    if not st.session_state.get('force_map_update', False):
-        if map_out:
-            # 1. Update Center
-            if "center" in map_out and map_out["center"]:
-                new_lat = map_out["center"]["lat"]
-                new_lon = map_out["center"]["lng"]
-                st.session_state.map_center = [new_lat, new_lon]
+    # Default behavior of st_folium handles view state reasonably well between reruns 
+    # if we don't force it. Since we removed 'last_clicked' logic, map reruns are minimized
+    # to only when drawings occur.
 
-            # 2. Update Zoom
-            if "zoom" in map_out:
-                new_zoom = map_out["zoom"]
-                st.session_state.map_zoom = new_zoom
+    # Handle Interaction (Draw Event)
+    if map_out and map_out.get("last_active_drawing"):
+        drawing = map_out["last_active_drawing"]
+        if drawing['geometry']['type'] == 'Point':
+            # GeoJSON is [Lon, Lat]
+            lon_c, lat_c = drawing['geometry']['coordinates']
             
-            # Note: We do NOT trigger st.rerun() here.
-            # Doing so causes a "refresh loop" on every zoom interaction.
-            # st_folium handles the view state on the frontend.
-            # We just capture the new state so FUTURE reruns (e.g. typing coordinates) start from here.
-    else:
-        # Reset the flag after one render cycle so manual panning works again next time
-        st.session_state.force_map_update = False
-
-    # Handle Interaction (Always Active)
-    if map_out and map_out.get("last_clicked"):
-        lat_c = map_out["last_clicked"]["lat"]
-        lng_c = map_out["last_clicked"]["lng"]
-        
-        # Check if this click is "new" or if we already processed it?
-        # st_folium returns the SAME 'last_clicked' object until a new click occurs.
-        # We need to compare with the "currently selected" target to avoid re-triggering constantly?
-        # Actually, st.rerun() resets the script. 
-        # But if the user clicks, we set the coord, rerun. 
-        # Next run: last_clicked is STILL the same. Rerun again? No, we check if value changed.
-        
-        current_target_str = st.session_state.coords_target
-        current_lat, current_lon = parse_coords(current_target_str)
-        
-        # Simulating "New Click Only" Check
-        is_new_click = True
-        if current_lat and current_lon:
-            if abs(current_lat - lat_c) < 0.000001 and abs(current_lon - lng_c) < 0.000001:
-                is_new_click = False # Same click as before
-        
-        if is_new_click:
-            st.session_state.picked_a = [lat_c, lng_c] # reuse this temp state
-            st.toast(f"📍 Target set to {lat_c:.4f}, {lng_c:.4f}")
+            # Update Target
+            st.session_state.picked_a = [lat_c, lon_c]
+            st.toast(f"📍 Target set to {lat_c:.4f}, {lon_c:.4f}")
             st.session_state.force_map_update = True
             st.rerun()
     
