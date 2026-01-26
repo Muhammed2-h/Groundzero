@@ -99,7 +99,22 @@ def get_elevations(locations: List[Tuple[float, float]], batch_size: int = 100) 
 
     return elevations
 
- # ... (Curvature function remains same)
+def calculate_earth_curvature_drop(dist_m: float, total_dist_m: float) -> float:
+    """
+    Calculates the apparent drop in height due to Earth's curvature and refraction.
+    Using standard K-factor 1.33 (Effective Earth Radius).
+    Drop h = d1 * d2 / (2 * k * R_earth)
+    d1 = distance from start
+    d2 = distance to end (total - d1)
+    """
+    if total_dist_m == 0: return 0
+    
+    R_earth = 6371000 # meters
+    k_factor = 1.33 # Standard refraction
+    
+    # Calculate geometric drop offset relative to the chord
+    drop = (dist_m * (total_dist_m - dist_m)) / (2 * k_factor * R_earth)
+    return drop
 
 @st.cache_data(ttl=600, show_spinner=False)
 def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: float, 

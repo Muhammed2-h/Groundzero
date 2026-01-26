@@ -3,7 +3,7 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 import plotly.graph_objects as go
-from terrain_utils import analyze_terrain_profile
+from terrain_utils import analyze_terrain_profile_v3
 from file_parser import parse_site_data
 
 st.set_page_config(page_title="Line of Sight Terrain Analyzer", layout="wide")
