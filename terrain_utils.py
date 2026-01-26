@@ -56,10 +56,11 @@ def fetch_elevation_openmeteo(lats_str: str, lons_str: str) -> List[float]:
         print(f"Open-Meteo error: {e}")
     return None
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_elevation_openelevation(locations: List[Tuple[float, float]]) -> List[float]:
-    """Fetch from Open-Elevation API (POST with JSON)"""
+def fetch_elevation_openelevation(locations: list) -> list:
+    """Fetch from Open-Elevation API (POST with JSON) - No caching due to list input"""
     try:
+        if not locations:
+            return []
         payload = {"locations": [{"latitude": lat, "longitude": lon} for lat, lon in locations]}
         response = session.post(
             ELEVATION_APIS[1]["url"], 
@@ -70,23 +71,26 @@ def fetch_elevation_openelevation(locations: List[Tuple[float, float]]) -> List[
         if response.status_code == 200:
             data = response.json()
             results = data.get('results', [])
-            return [r.get('elevation', 0) for r in results]
+            if results:
+                return [r.get('elevation', 0) for r in results]
     except Exception as e:
         print(f"Open-Elevation error: {e}")
     return None
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_elevation_opentopodata(locations: List[Tuple[float, float]]) -> List[float]:
-    """Fetch from OpenTopoData API (SRTM)"""
+def fetch_elevation_opentopodata(locations: list) -> list:
+    """Fetch from OpenTopoData API (SRTM) - No caching due to list input"""
     try:
-        # Format: "lat,lon|lat,lon|..."
-        locs_str = "|".join([f"{lat},{lon}" for lat, lon in locations])
+        if not locations:
+            return []
+        # Format: "lat,lon|lat,lon|..." - limit to 100 per request
+        locs_str = "|".join([f"{lat},{lon}" for lat, lon in locations[:100]])
         params = {"locations": locs_str}
         response = session.get(ELEVATION_APIS[2]["url"], params=params, timeout=30)
         if response.status_code == 200:
             data = response.json()
             results = data.get('results', [])
-            return [r.get('elevation', 0) if r.get('elevation') is not None else 0 for r in results]
+            if results:
+                return [r.get('elevation', 0) if r.get('elevation') is not None else 0 for r in results]
     except Exception as e:
         print(f"OpenTopoData error: {e}")
     return None

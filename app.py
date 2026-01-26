@@ -3,6 +3,7 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 import plotly.graph_objects as go
+import math
 from terrain_utils import analyze_terrain_profile_v3
 from file_parser import parse_site_data
 
