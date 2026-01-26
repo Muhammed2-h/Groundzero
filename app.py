@@ -261,7 +261,12 @@ def main():
     # Add site locations
     if st.session_state.site_data is not None:
         for _, row in st.session_state.site_data.iterrows():
-            all_points.append([row['Latitude'], row['Longitude']])
+            try:
+                lat, lon = float(row['Latitude']), float(row['Longitude'])
+                if not pd.isna(lat) and not pd.isna(lon):
+                    all_points.append([lat, lon])
+            except (ValueError, TypeError):
+                continue
     
     # Add target location
     if st.session_state.coords_target:
@@ -291,31 +296,36 @@ def main():
 
     # Draw Imported Sites (if any)
     if st.session_state.site_data is not None:
-         # Add markers / Sectors
-        for _, row in st.session_state.site_data.iterrows():
-            # ... (Site drawing logic remains same, just preserving context) ...
-            # Check for Azimuth
-            has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
-            
-            if has_azimuth:
-                az = float(row['Azimuth'])
-                SemiCircle(
-                    location=[row['Latitude'], row['Longitude']],
-                    radius=sector_radius_km * 1000,
-                    start_angle=az - (beam_width / 2),
-                    stop_angle=az + (beam_width / 2),
-                    color="blue", fill=True, fill_color="blue", fill_opacity=0.3,
-                    popup=f"ID: {row['Site_ID']}",
-                    tooltip=f"{row['Site_ID']}"
-                ).add_to(m)
-            else:
-                folium.CircleMarker(
-                    location=[row['Latitude'], row['Longitude']],
-                    radius=5,
-                    popup=f"ID: {row['Site_ID']}",
-                    tooltip=str(row['Site_ID']),
-                    color="blue", fill=True, fill_color="blue"
-                ).add_to(m)
+        for idx, row in st.session_state.site_data.iterrows():
+            try:
+                lat = float(row['Latitude'])
+                lon = float(row['Longitude'])
+                if pd.isna(lat) or pd.isna(lon): continue
+                
+                # Check for Azimuth
+                has_azimuth = 'Azimuth' in row and pd.notnull(row['Azimuth'])
+                
+                if has_azimuth:
+                    az = float(row['Azimuth'])
+                    SemiCircle(
+                        location=[lat, lon],
+                        radius=sector_radius_km * 1000,
+                        start_angle=az - (beam_width / 2),
+                        stop_angle=az + (beam_width / 2),
+                        color="blue", fill=True, fill_color="blue", fill_opacity=0.3,
+                        popup=f"ID: {row['Site_ID']}",
+                        tooltip=f"{row['Site_ID']}"
+                    ).add_to(m)
+                else:
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=5,
+                        popup=f"ID: {row['Site_ID']}",
+                        tooltip=str(row['Site_ID']),
+                        color="blue", fill=True, fill_color="blue"
+                    ).add_to(m)
+            except (ValueError, TypeError):
+                continue # Skip invalid rows
     
     # --- HIGHLIGHT SEARCH RESULTS ON MAP ---
     if st.session_state.get('search_results'):
@@ -409,41 +419,29 @@ def main():
     draw.add_to(m)
 
     # Render Map & Capture Interaction
-    # We use 'last_active_drawing' to capture when a user drops a marker via the toolbar.
-    # This solves the "Accidental Touch" issue because it requires selecting the tool first.
     map_out = st_folium(
         m, 
         width=None, 
-        height=450, 
+        height=500, 
         key="main_map_interface",
-        returned_objects=["last_active_drawing"]
+        returned_objects=["last_active_drawing", "zoom", "center"]
     )
 
-    # Update Persisted Center/Zoom
-    # Default behavior of st_folium handles view state reasonably well between reruns 
-    # if we don't force it. Since we removed 'last_clicked' logic, map reruns are minimized
-    # to only when drawings occur.
-
     # Handle Interaction (Draw Event)
-    if 'last_processed_drawing' not in st.session_state:
-        st.session_state.last_processed_drawing = None
-
     if map_out and map_out.get("last_active_drawing"):
         drawing = map_out["last_active_drawing"]
         
-        # Check against previous to prevent Loop / Stale Overwrite
-        if drawing != st.session_state.last_processed_drawing:
+        # Check against previous to prevent Loop
+        if drawing != st.session_state.get('last_processed_drawing'):
             if drawing['geometry']['type'] == 'Point':
                 # GeoJSON is [Lon, Lat]
                 lon_c, lat_c = drawing['geometry']['coordinates']
                 
-                # Update Target
-                st.session_state.picked_a = [lat_c, lon_c]
-                st.toast(f"📍 Target set to {lat_c:.4f}, {lon_c:.4f}")
-                
-                # Mark as processed
+                # Update Target Directly
+                st.session_state.coords_target = f"{lat_c:.6f}, {lon_c:.6f}"
                 st.session_state.last_processed_drawing = drawing
                 st.session_state.force_map_update = True
+                st.toast(f"📍 Location set to {lat_c:.4f}, {lon_c:.4f}")
                 st.rerun()
     
     # Reset Button (Clear All)
@@ -462,17 +460,7 @@ def main():
     
     col1, col2 = st.columns([2, 1])
     
-    # Sync Logic for Single Point
-    # We use 'coords_target' as the single source of truth.
-    # 'picked_a' is used strictly as a temporary signal from the Map to update the Input.
-    if 'coords_target' not in st.session_state: st.session_state.coords_target = ""
-
     with col1:
-         # Check for map picks (Update State from Map -> Input)
-        if st.session_state.get('picked_a'):
-            st.session_state.coords_target = f"{st.session_state.picked_a[0]:.6f}, {st.session_state.picked_a[1]:.6f}"
-            st.session_state.picked_a = None 
-            
         t_input = st.text_input("Coordinates (Lat, Lon)", key="coords_target", help="Format: Decimal Degrees (WGS84 / EPSG:4326). Example: 25.2769, 55.2962")
         
     with col2:
