@@ -60,6 +60,36 @@ def main():
     clutter_height = clutter_offsets[clutter_type]
     st.sidebar.caption(f"Clutter Height Offset: +{clutter_height}m")
     
+    # --- 5G LINK BUDGET PARAMETERS ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📶 5G Link Budget")
+    
+    # TX Power (Typical 5G Macro: 40-46 dBm EIRP)
+    tx_power_dbm = st.sidebar.number_input("TX Power (dBm)", min_value=20.0, max_value=60.0, value=43.0, step=1.0,
+                                            help="Transmitter power. Typical 5G Macro: 43-46 dBm")
+    
+    # Antenna Gain
+    tx_gain_dbi = st.sidebar.number_input("TX Antenna Gain (dBi)", min_value=0.0, max_value=30.0, value=18.0, step=1.0,
+                                           help="Typical 5G Massive MIMO: 18-24 dBi")
+    
+    # Receiver (UE) Sensitivity
+    rx_sensitivity_dbm = st.sidebar.number_input("UE Sensitivity (dBm)", min_value=-130.0, max_value=-80.0, value=-110.0, step=1.0,
+                                                  help="Typical 5G UE: -110 to -105 dBm")
+    
+    # RSRP Thresholds
+    st.sidebar.markdown("**Coverage Thresholds**")
+    rsrp_excellent = st.sidebar.number_input("Excellent RSRP (dBm)", value=-80.0, step=1.0, disabled=True)
+    rsrp_good = st.sidebar.number_input("Good RSRP (dBm)", value=-95.0, step=1.0, disabled=True)
+    rsrp_fair = st.sidebar.number_input("Fair RSRP (dBm)", value=-105.0, step=1.0, disabled=True)
+    
+    # Fading/Shadow Margin
+    fading_margin_db = st.sidebar.number_input("Fading Margin (dB)", min_value=0.0, max_value=20.0, value=8.0, step=1.0,
+                                                help="Shadow fading margin. Typical: 6-10 dB")
+    
+    # Calculate EIRP
+    eirp_dbm = tx_power_dbm + tx_gain_dbi
+    st.sidebar.metric("Effective EIRP", f"{eirp_dbm:.1f} dBm")
+    
     if 'site_data' not in st.session_state:
         st.session_state.site_data = None
         
@@ -452,27 +482,28 @@ def main():
                     frequency_mhz=frequency_mhz,
                     k_factor=k_factor,
                     antenna_tilt_deg=antenna_tilt,
-                    clutter_height_m=clutter_height
+                    clutter_height_m=clutter_height,
+                    # Link Budget
+                    eirp_dbm=eirp_dbm,
+                    fading_margin_db=fading_margin_db,
+                    rx_sensitivity_dbm=rx_sensitivity_dbm
                 )
                 
                 if res.get("status") == "Success":
-                    # Determine status
-                    if res["blocked"]:
-                        status = "❌ BLOCKED"
-                    elif res["fresnel_violated"]:
-                        status = "⚠️ FRESNEL"
-                    else:
-                        status = "✅ CLEAR"
+                    # Coverage Status Emoji
+                    cov_emojis = {5: "🟢", 4: "🟢", 3: "🟡", 2: "🟠", 1: "🔴", 0: "⛔"}
+                    cov_emoji = cov_emojis.get(res["coverage_quality"], "❓")
                     
                     st.session_state.results.append({
                         "ID": f"{row['Site_ID']}_{idx}",
                         "Path Name": f"{row['Site_ID']} → Target",
                         "Site ID": row['Site_ID'],
-                        "Distance (km)": res["dataframe"]["distance_km"].max(),
-                        "Status": status,
-                        "Obstruction (m)": res["max_obstruction_height"],
-                        "Type": res["obstruction_type"],
-                        "Required Height": f"+{res['required_height_increase']:.1f}m" if res["blocked"] else "-",
+                        "Distance (km)": round(res["dataframe"]["distance_km"].max(), 2),
+                        "LoS": "Clear" if not res["blocked"] else "Blocked",
+                        "RSRP (dBm)": round(res["estimated_rsrp_dbm"], 1),
+                        "Path Loss (dB)": round(res["total_path_loss_db"], 1),
+                        "Coverage": f"{cov_emoji} {res['coverage_verdict']}",
+                        "Link Margin (dB)": round(res["link_margin_db"], 1),
                         "Raw": res
                     })
                 
@@ -531,18 +562,50 @@ def main():
             selected_result = st.session_state.results[selected_index]
             raw_data = selected_result["Raw"]
             
-            # Info Panel
-            col_info1, col_info2, col_info3 = st.columns(3)
-            with col_info1:
-                st.metric("Status", "🚫 Blocked" if raw_data["blocked"] else ("⚠️ Fresnel" if raw_data["fresnel_violated"] else "✅ Clear"))
-            with col_info2:
-                st.metric("Obstruction Type", raw_data["obstruction_type"])
-            with col_info3:
-                if raw_data["blocked"]:
-                    st.metric("Required Height Increase", f"+{raw_data['required_height_increase']:.1f}m")
-                else:
-                    st.metric("Clearance", "OK")
+            # === RF LINK BUDGET DASHBOARD ===
+            st.subheader("📶 RF Link Budget Analysis")
             
+            # Main Metrics Row
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            # Coverage Quality Color
+            cov_colors = {5: "green", 4: "green", 3: "orange", 2: "red", 1: "red", 0: "red"}
+            cov_color = cov_colors.get(raw_data["coverage_quality"], "gray")
+            
+            with col1:
+                st.metric("📡 RSRP", f"{raw_data['estimated_rsrp_dbm']:.1f} dBm")
+            with col2:
+                st.metric("� Coverage", raw_data["coverage_verdict"])
+            with col3:
+                st.metric("📉 Path Loss", f"{raw_data['total_path_loss_db']:.1f} dB")
+            with col4:
+                st.metric("📏 Link Margin", f"{raw_data['link_margin_db']:.1f} dB")
+            with col5:
+                st.metric("🎯 Max Range", f"{raw_data['max_range_km']:.2f} km")
+            
+            # Path Loss Breakdown
+            with st.expander("📋 Path Loss Breakdown", expanded=False):
+                col_pl1, col_pl2, col_pl3 = st.columns(3)
+                with col_pl1:
+                    st.metric("FSPL", f"{raw_data['fspl_db']:.1f} dB")
+                with col_pl2:
+                    st.metric("Diffraction Loss", f"{raw_data['diffraction_loss_db']:.1f} dB")
+                with col_pl3:
+                    st.metric("Clutter Loss", f"{raw_data['clutter_loss_db']:.1f} dB")
+                
+                st.caption(f"**EIRP:** {raw_data['eirp_dbm']:.1f} dBm | **Frequency:** {raw_data['frequency_mhz']} MHz | **K-Factor:** {raw_data['k_factor']}")
+            
+            # Coverage Verdict Alert
+            if raw_data["coverage_quality"] >= 4:
+                st.success(f"✅ **{raw_data['coverage_verdict']} Coverage** - Target location will receive strong 5G signal from this site.")
+            elif raw_data["coverage_quality"] == 3:
+                st.warning(f"⚠️ **{raw_data['coverage_verdict']} Coverage** - Signal may be weak. Consider closer site or higher antenna.")
+            elif raw_data["coverage_quality"] == 2:
+                st.warning(f"🟠 **{raw_data['coverage_verdict']} Coverage** - Marginal signal. Indoor coverage unlikely.")
+            else:
+                st.error(f"❌ **{raw_data['coverage_verdict']}** - This site cannot provide coverage to the target location.")
+            
+            # Obstruction Details (if any)
             if raw_data["blocked"] and raw_data["obstruction_location"]:
                 st.error(f"⛔ **{raw_data['obstruction_type']}** blocks LoS by {raw_data['max_obstruction_height']:.1f}m. Increase antenna height by at least **+{raw_data['required_height_increase']:.1f}m** to clear.")
 

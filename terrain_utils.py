@@ -125,7 +125,11 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
                 k_factor: float = 1.33,
                 antenna_tilt_deg: float = 0.0,
                 clutter_height_m: float = 0.0,
-                _cache_version: int = 3) -> Dict:
+                # Link Budget Parameters
+                eirp_dbm: float = 61.0,
+                fading_margin_db: float = 8.0,
+                rx_sensitivity_dbm: float = -110.0,
+                _cache_version: int = 4) -> Dict:
     """
     Advanced RF Line of Sight Analysis with Fresnel Zone, K-Factor, and Tilt support.
     """
@@ -259,10 +263,78 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
             obs_type = "Vegetation/Forest"
         
         # 7. Reverse Analysis: Required Height Increase
-        # To clear the obstruction, we need to raise the LoS by max_obs_height + margin
-        # This can be achieved by raising the start antenna
         margin = 5.0  # 5m safety margin
         required_height_increase = max_obs_height + margin
+    
+    # ========================================
+    # 8. RF PROPAGATION & LINK BUDGET ANALYSIS
+    # ========================================
+    
+    # Free Space Path Loss (FSPL)
+    # FSPL (dB) = 20*log10(d) + 20*log10(f) + 32.45
+    # where d = km, f = MHz
+    distance_km = total_distance_m / 1000.0
+    if distance_km > 0:
+        fspl_db = 20 * np.log10(distance_km) + 20 * np.log10(frequency_mhz) + 32.45
+    else:
+        fspl_db = 0
+    
+    # Diffraction Loss (Simplified Knife-Edge Model)
+    # If blocked, add significant diffraction loss
+    diffraction_loss_db = 0.0
+    if blocked:
+        # Approximate diffraction loss based on obstruction height
+        # Using simplified ITU-R P.526 knife-edge
+        # v = obstruction_height * sqrt(2 / (lambda * d1 * d2 / D))
+        wavelength_m = 299.792458 / frequency_mhz  # c/f in meters
+        d1_m = distance_km * 500  # Approximate midpoint
+        d2_m = distance_km * 500
+        if d1_m > 0 and d2_m > 0:
+            v = max_obs_height * np.sqrt(2 / (wavelength_m * d1_m * d2_m / (d1_m + d2_m)))
+            if v > -0.78:
+                diffraction_loss_db = 6.9 + 20 * np.log10(np.sqrt((v - 0.1)**2 + 1) + v - 0.1)
+                diffraction_loss_db = max(0, min(diffraction_loss_db, 40))  # Cap at 40 dB
+    
+    # Clutter Loss (Based on environment)
+    clutter_loss_db = {0: 0, 5: 3, 10: 8, 20: 15}.get(int(clutter_height_m), 0)
+    
+    # Total Path Loss
+    total_path_loss_db = fspl_db + diffraction_loss_db + clutter_loss_db + fading_margin_db
+    
+    # Estimated RSRP (dBm)
+    # RSRP = EIRP - Path Loss
+    estimated_rsrp_dbm = eirp_dbm - total_path_loss_db
+    
+    # Link Margin
+    link_margin_db = estimated_rsrp_dbm - rx_sensitivity_dbm
+    
+    # Coverage Verdict
+    if blocked and diffraction_loss_db > 20:
+        coverage_verdict = "No Coverage"
+        coverage_quality = 0
+    elif estimated_rsrp_dbm >= -80:
+        coverage_verdict = "Excellent"
+        coverage_quality = 5
+    elif estimated_rsrp_dbm >= -95:
+        coverage_verdict = "Good"
+        coverage_quality = 4
+    elif estimated_rsrp_dbm >= -105:
+        coverage_verdict = "Fair"
+        coverage_quality = 3
+    elif estimated_rsrp_dbm >= -115:
+        coverage_verdict = "Poor"
+        coverage_quality = 2
+    else:
+        coverage_verdict = "No Coverage"
+        coverage_quality = 1
+    
+    # Maximum Theoretical Range (for this EIRP at RSRP = -105 dBm threshold)
+    # Rearranging FSPL: d = 10^((EIRP - RSRP_threshold - 32.45 - clutter - fading) / 20) / f_mhz
+    max_range_budget_db = eirp_dbm - (-105) - 32.45 - clutter_loss_db - fading_margin_db
+    if max_range_budget_db > 0:
+        max_range_km = (10 ** (max_range_budget_db / 20)) / frequency_mhz
+    else:
+        max_range_km = 0
     
     return {
         "status": "Success",
@@ -274,6 +346,17 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
         "required_height_increase": required_height_increase,
         "frequency_mhz": frequency_mhz,
         "k_factor": k_factor,
+        # RF Analysis Results
+        "fspl_db": fspl_db,
+        "diffraction_loss_db": diffraction_loss_db,
+        "clutter_loss_db": clutter_loss_db,
+        "total_path_loss_db": total_path_loss_db,
+        "estimated_rsrp_dbm": estimated_rsrp_dbm,
+        "link_margin_db": link_margin_db,
+        "coverage_verdict": coverage_verdict,
+        "coverage_quality": coverage_quality,
+        "max_range_km": max_range_km,
+        "eirp_dbm": eirp_dbm,
         "dataframe": pd.DataFrame({
             'lat': lats,
             'lon': lons,
