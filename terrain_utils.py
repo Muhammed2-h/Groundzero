@@ -190,8 +190,9 @@ def analyze_terrain_profile(lat1: float, lon1: float, lat2: float, lon2: float,
             'lon': lons,
             'distance_km': distances,
             'elevation': elevs_np,
-            'los_elevation_flat': los_linear,
-            'los_elevation': los_curved,
+            'elevation_curved': elevs_np + curvature_sag, # Add curvature bulge to earth
+            'los_elevation_flat': los_linear,             # Straight Line
+            'los_elevation': los_curved,                  # Legacy curved line
             'earth_curve_drop': curvature_sag,
             'is_obstructing': is_obstructing
         }),
