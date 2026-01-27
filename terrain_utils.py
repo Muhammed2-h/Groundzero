@@ -5,6 +5,7 @@ from geopy.distance import geodesic
 from typing import List, Tuple, Dict
 import streamlit as st
 import time
+import math
 
 # === MULTIPLE ELEVATION API SOURCES ===
 # Primary: Open-Meteo (Fast, reliable)
@@ -231,15 +232,8 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
     start_elev = elevs_np[0] + h_start_agl
     end_elev = elevs_np[-1] + h_end_agl
     
-    # Apply Antenna Tilt (affects endpoint height)
-    # Positive tilt = downtilt = lower endpoint relative to start
-    import math
-    tilt_rad = math.radians(antenna_tilt_deg)
-    tilt_drop = total_distance_m * math.tan(tilt_rad)
-    end_elev_with_tilt = end_elev - tilt_drop
-    
-    # Linear LoS (Flat Earth reference with Tilt)
-    los_linear = np.linspace(start_elev, end_elev_with_tilt, num_points)
+    # Linear LoS (Flat Earth reference) - Corrected: Always Connect Start to End geometrically
+    los_linear = np.linspace(start_elev, end_elev, num_points)
     
     # Earth Curvature "Sag" with Custom K-Factor
     def calc_curvature_drop_custom_k(dist_m, total_dist_m, k):
@@ -398,7 +392,37 @@ def analyze_terrain_profile_v3(lat1: float, lon1: float, lat2: float, lon2: floa
         phi_3db = h_beamwidth / 2
         if angle_offset > 0:
             pattern_atten = min(12 * (angle_offset / phi_3db) ** 2, 30)
-            antenna_pattern_loss_db = pattern_atten
+            antenna_pattern_loss_db += pattern_atten
+
+    # --- Vertical Pattern Loss (Downtilt) ---
+    # Calculate physical elevation angle to target
+    # Angle = atan(delta_h / d) - d / (2*k*R) (approximated)
+    delta_h = end_elev - start_elev
+    if total_distance_m > 0:
+        elev_angle_rad = math.atan(delta_h / total_distance_m)
+        # Correct for curvature (target "drops" over horizon)
+        # angle correction approx -dist / (2 * k * R)
+        R_eff = 6371000 * k_factor
+        curvature_angle_drop = total_distance_m / (2 * R_eff)
+        physical_angle_deg = math.degrees(elev_angle_rad - curvature_angle_drop)
+        
+        # Tilt is "Down" (Positive). 
+        # Boresight Angle = -antenna_tilt_deg
+        # Off-axis angle = |Physical - (-Tilt)| = |Physical + Tilt|
+        # Example: Tilt=5deg (Pointing -5). Target is at -6deg. Diff = 1 deg.
+        
+        # Convention: antenna_tilt_deg is positive for DOWNTILT.
+        # So boresight is pointing at -antenna_tilt_deg.
+        boresight_angle = -antenna_tilt_deg
+        
+        v_angle_diff = abs(physical_angle_deg - boresight_angle)
+        
+        # Vertical Beamwidth (Typical 5G Macro: 7-10 degrees)
+        v_beamwidth = 10.0 
+        v_phi_3db = v_beamwidth / 2.0
+        
+        v_pattern_loss = min(12 * (v_angle_diff / v_phi_3db) ** 2, 30)
+        antenna_pattern_loss_db += v_pattern_loss
     
     # --- E. CLUTTER LOSS (Environment-based) ---
     clutter_loss_db = {0: 0, 5: 3, 10: 8, 20: 15}.get(int(clutter_height_m), 0)
